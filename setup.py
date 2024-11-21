@@ -2,7 +2,7 @@
 # -*- encoding: utf-8 -*-
 """
 setup.py
-A module that installs the SKIDNAME skid as a module
+A module that installs the lsli skid as a module
 """
 from pathlib import Path
 
@@ -10,18 +10,18 @@ from setuptools import find_packages, setup
 
 #: Load version from source file
 version = {}
-version_file = Path(__file__).parent / "src" / "skidname" / "version.py"
+version_file = Path(__file__).parent / "src" / "lsli" / "version.py"
 exec(version_file.read_text(), version)
 
 setup(
-    name="skidname",
+    name="lsli",
     version=version["__version__"],
     license="MIT",
     long_description=(Path(__file__).parent / "README.md").read_text(),
     long_description_content_type="text/markdown",
     author="UGRC",
     author_email="ugrc-developers@utah.gov",
-    url="https://github.com/agrc/skid",
+    url="https://github.com/agrc/lsli",
     packages=find_packages("src"),
     package_dir={"": "src"},
     include_package_data=True,
@@ -34,24 +34,21 @@ setup(
         "Topic :: Utilities",
     ],
     project_urls={
-        "Issue Tracker": "https://github.com/agrc/skid/issues",
+        "Issue Tracker": "https://github.com/agrc/lsli/issues",
     },
     keywords=["gis"],
     install_requires=[
-        "ugrc-palletjack>=4.4.1,<4.5",
-        "agrc-supervisor==3.1.0",
+        "ugrc-palletjack>=5.0,<5.2",
+        "agrc-supervisor==3.0.3",
     ],
     extras_require={
         "tests": [
             "pytest-cov>=3,<6",
             "pytest-instafail==0.5.*",
             "pytest-mock==3.*",
-            "pytest-ruff==0.*",
             "pytest-watch==4.*",
             "pytest>=6,<9",
-            "black>=24.4.2,<24.5",
             "ruff==0.*",
-            "functions-framework>=3.8.0,<3.9",
         ]
     },
     setup_requires=[
@@ -59,7 +56,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "skidname = skidname.main:function",
+            "lsli = lsli.main:process",
         ]
     },
 )
