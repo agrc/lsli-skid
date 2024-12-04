@@ -3,10 +3,15 @@
     "agrc",
     "arcgis",
     "arcpy",
+    "cassificat",
+    "cassification",
     "Codecov",
     "finditer",
     "getenv",
+    "gethostname",
     "instafail",
+    "Lccr",
+    "logfiles",
     "lsli",
     "mapserv",
     "metatable",
@@ -20,8 +25,12 @@
     "pygsheets",
     "pyodbc",
     "pytest",
+    "reprojection",
     "rindex",
+    "serviceline",
     "sgid",
+    "spatialize",
+    "Spatializer",
     "UGRC",
     "venv",
     "worknote"
@@ -41,7 +50,7 @@
     "source.organizeImports": "explicit"
   },
   "[python]": {
-    "editor.defaultFormatter": "ms-python.black-formatter",
+    "editor.defaultFormatter": "charliermarsh.ruff",
     "editor.formatOnSave": true
   }
 }
