@@ -3,7 +3,7 @@
 """
 Run the lsli script as a cloud function.
 """
-import base64
+
 import json
 import logging
 import sys
@@ -13,6 +13,9 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import arcgis
+import pandas as pd
+from gql import Client, gql
+from gql.transport.requests import RequestsHTTPTransport
 from palletjack import extract, load, transform, utils
 from supervisor.message_handlers import SendGridHandler
 from supervisor.models import MessageDetails, Supervisor
@@ -24,6 +27,8 @@ try:
 except ImportError:
     import config
     import version
+
+module_logger = logging.getLogger(config.SKID_NAME)
 
 
 def _get_secrets():
@@ -61,8 +66,7 @@ def _initialize(log_path, sendgrid_api_key):
         Supervisor: The supervisor object used for sending messages
     """
 
-    skid_logger = logging.getLogger(config.SKID_NAME)
-    skid_logger.setLevel(config.LOG_LEVEL)
+    module_logger.setLevel(config.LOG_LEVEL)
     palletjack_logger = logging.getLogger("palletjack")
     palletjack_logger.setLevel(config.LOG_LEVEL)
 
@@ -77,8 +81,8 @@ def _initialize(log_path, sendgrid_api_key):
     log_handler.setLevel(config.LOG_LEVEL)
     log_handler.setFormatter(formatter)
 
-    skid_logger.addHandler(cli_handler)
-    skid_logger.addHandler(log_handler)
+    module_logger.addHandler(cli_handler)
+    module_logger.addHandler(log_handler)
     palletjack_logger.addHandler(cli_handler)
     palletjack_logger.addHandler(log_handler)
 
@@ -87,7 +91,7 @@ def _initialize(log_path, sendgrid_api_key):
     #: (all log messages were duplicated if put at beginning)
     logging.captureWarnings(True)
 
-    skid_logger.debug("Creating Supervisor object")
+    module_logger.debug("Creating Supervisor object")
     skid_supervisor = Supervisor(handle_errors=False)
     sendgrid_settings = config.SENDGRID_SETTINGS
     sendgrid_settings["api_key"] = sendgrid_api_key
@@ -132,31 +136,29 @@ def process():
         log_path = tempdir_path / log_name
 
         skid_supervisor = _initialize(log_path, secrets.SENDGRID_API_KEY)
-        module_logger = logging.getLogger(config.SKID_NAME)
 
         #: Get our GIS object via the ArcGIS API for Python
         gis = arcgis.gis.GIS(config.AGOL_ORG, secrets.AGOL_USER, secrets.AGOL_PASSWORD)
 
-        #########################################################################
-        #: Use the various palletjack classes and other code to do your work here
-        #########################################################################
+        module_logger.info("Loading data from graphql endpoint...")
+        records_df = _load_records_from_graphql(secrets.GRAPHQL_URL, config.GRAPHQl_QUERY, config.GRAPHQL_LIMIT)
 
-        module_logger.info("Log messages with module_logger.info() or module_logger.debug()")
+        module_logger.info("Transforming data...")
+        spatial_records = _spatialize_data(records_df)
+        spatial_records.rename(
+            columns={"serviceline_material_cassification": "serviceline_material_cassificat"}, inplace=True
+        )
 
-        #: Create a extract object to load your new data
-        extractor = extract.PostgresLoader("host", "database", "user", "password")
-        new_data_df = extractor.read_table_into_dataframe("table_name", "index_column", "crs", "shape_column")
+        #: Strip off trailing digits for any zipcodes in ZIP+4 format
+        spatial_records["pws_zipcode"] = spatial_records["pws_zipcode"].astype(str).str[:5].astype("Int64")
 
-        #: Transform your data
-        new_data_df = new_data_df["new_column"] = "do custom transform stuff here"
-        new_data_df = transform.DataCleaning.rename_dataframe_columns_for_agol(new_data_df)
+        cleaned_spatial_records = transform.DataCleaning.switch_to_nullable_int(
+            spatial_records, ["pws_population", "system_id"]
+        )
 
-        #: Use retry for operations that may fail randomly (network issues, etc)
-        utils.retry("method_to_retry", "arg1", keyword_arg="arg2")
-
-        #: Create a load object to load your new data
-        loader = load.FeatureServiceUpdater(gis, "item_id")
-        loader.update_features(new_data_df)
+        module_logger.info("Loading data...")
+        loader = load.ServiceUpdater(gis, config.FEATURE_LAYER_ITEMID, working_dir=tempdir_path)
+        features_loaded = loader.truncate_and_load(cleaned_spatial_records)
 
         end = datetime.now()
 
@@ -169,8 +171,7 @@ def process():
             f'Start time: {start.strftime("%H:%M:%S")}',
             f'End time: {end.strftime("%H:%M:%S")}',
             f"Duration: {str(end-start)}",
-            #: Add other rows here containing summary info captured/calculated during the working portion of the skid,
-            #: like the number of rows updated or the number of successful attachment overwrites.
+            f"Features loaded: {features_loaded:,}",
         ]
 
         summary_message.message = "\n".join(summary_rows)
@@ -181,6 +182,73 @@ def process():
         #: Remove file handler so the tempdir will close properly
         loggers = [logging.getLogger(config.SKID_NAME), logging.getLogger("palletjack")]
         _remove_log_file_handlers(log_name, loggers)
+
+
+def _load_records_from_graphql(url: str, query: str, limit: int) -> pd.DataFrame:
+    """Load records from a GraphQL endpoint in chunks
+
+    Args:
+        url (str): GraphQL endpoint URL
+        query (str): GraphQL query string
+        limit (int): The max number of records to return per chunk
+
+    Returns:
+        pd.DataFrame: GraphQL records as a DataFrame
+    """
+
+    transport = RequestsHTTPTransport(
+        url=url,
+        verify=True,
+        retries=3,
+    )
+    client = Client(transport=transport, fetch_schema_from_transport=True)
+    query = gql(query)
+
+    result_length = limit
+    offset = 0
+    records = []
+
+    while result_length == limit:
+        result = client.execute(query, variable_values={"offset": offset, "limit": limit})
+        result_length = len(result["getLccrMapUGRC"])
+        module_logger.debug("Offset: %s, Length: %s", format(offset, ","), format(result_length, ","))
+        offset += limit
+        records.extend(result["getLccrMapUGRC"])
+
+    return pd.DataFrame(records)
+
+
+def _spatialize_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert a dataframe to a spatially-enabled dataframe accounting for both WGS84 and UTM NAD83 coordinates
+
+    Any rows with latitude < 100 are assumed to be WGS84, while rows with latitude > 100 are assumed to be UTM NAD83.
+
+    Args:
+        df (pd.DataFrame): Input Dataframe with "latitude" and "longitude" columns
+
+    Returns:
+        pd.DataFrame: Spatially-enabled DataFrame in Web Mercator (EPSG:3857)
+    """
+
+    web_mercator_dfs = []
+
+    wgs_data = df[df["latitude"] < 100]
+    if not wgs_data.empty:
+        module_logger.debug("Loading %s rows with WGS84 coordinates", format(len(wgs_data), ","))
+        wgs_spatial = pd.DataFrame.spatial.from_xy(wgs_data, "longitude", "latitude", sr=4326)
+        module_logger.debug("Projecting WGS84 data to Web Mercator")
+        wgs_spatial.spatial.project(3857)
+        web_mercator_dfs.append(wgs_spatial)
+
+    utm_data = df[df["latitude"] > 100]
+    if not utm_data.empty:
+        module_logger.debug("Loading %s rows with UTM coordinates", format(len(utm_data), ","))
+        utm_spatial = pd.DataFrame.spatial.from_xy(utm_data, "longitude", "latitude", sr=26912)
+        module_logger.debug("Projecting UTM data to Web Mercator")
+        utm_spatial.spatial.project(3857)
+        web_mercator_dfs.append(utm_spatial)
+
+    return pd.concat(web_mercator_dfs)
 
 
 #: Putting this here means you can call the file via `python main.py` and it will run. Useful for pre-GCF testing.
