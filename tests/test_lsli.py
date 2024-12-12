@@ -232,6 +232,37 @@ class TestGoogleSheetData:
 
         pd.testing.assert_frame_equal(instance_mock.cleaned_systems_dataframe, expected_output)
 
+    def test_clean_approved_systems_removes_and_logs_invalid_pwsids(self, mocker):
+        input_data = pd.DataFrame(
+            {
+                "PWS ID": ["Utah1234", "Valley Water System"],
+                "Time": ["1/23/2024 15:55", "1/1/2024 15:55"],
+                "System Name": ["foo", "foo"],
+                "Approved": ["Accept", "Reject"],
+                "SC, LC, on NTNC": ["SC", "SC"],
+            }
+        )
+        instance_mock = mocker.Mock(spec=main.GoogleSheetData)
+        instance_mock.systems = input_data
+
+        main.GoogleSheetData.clean_approved_systems(instance_mock)
+
+        expected_output = pd.DataFrame(
+            {
+                "PWSID": ["1234"],
+                "Time": ["1/23/2024 15:55"],
+                "System Name": ["foo"],
+                "Approved": ["Accept"],
+                "SC, LC, on NTNC": ["SC"],
+            },
+            index=[0],
+        )
+        expected_output["PWSID"] = expected_output["PWSID"].astype(int)
+        expected_output["Time"] = pd.to_datetime(expected_output["Time"], format="mixed")
+
+        pd.testing.assert_frame_equal(instance_mock.cleaned_systems_dataframe, expected_output)
+        assert instance_mock.invalid_pwsids == ["Valley Water System"]
+
     def test_merge_systems_and_geometries_drops_and_reports_no_matches(self, mocker, caplog):
         systems = pd.DataFrame(
             {
