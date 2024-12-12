@@ -188,8 +188,14 @@ def process():
             f"Areas loaded: {areas_loaded}",
         ]
 
+        if sheet_data.invalid_pwsids:
+            summary_rows.append(f"\n{len(sheet_data.invalid_pwsids)} Invalid PWSIDs found:")
+            summary_rows.append("-" * 20)
+            summary_rows.extend(sheet_data.invalid_pwsids)
+
         if sheet_data.missing_geometries:
-            summary_rows.append("Missing Geometries:")
+            summary_rows.append(f"\n{len(sheet_data.missing_geometries)} Systems are missing geometries:")
+            summary_rows.append("-" * 20)
             for pwsid, (name, status) in sheet_data.missing_geometries.items():
                 summary_rows.append(f"{pwsid}: {name} ({status})")
 
@@ -276,8 +282,10 @@ class GoogleSheetData:
     systems = pd.DataFrame()
     cleaned_systems_dataframe = pd.DataFrame()
     cleaned_water_service_areas = pd.DataFrame()
-    missing_geometries = {}
     final_systems = pd.DataFrame()
+
+    missing_geometries = {}
+    invalid_pwsids = []
 
     def __init__(self, credentials: str, sheet_id: str, sheet_name: str):
         self._credentials = credentials
@@ -285,7 +293,7 @@ class GoogleSheetData:
         self._sheet_name = sheet_name
 
     def load_systems_from_sheet(self) -> pd.DataFrame:
-        """Load data from a Google sheet using palletjack using the second row as the header
+        """Load data from a Google sheet via palletjack using the second row as the header
 
         Returns:
             pd.DataFrame: The desired tab of the Google Sheet as a DataFrame
@@ -304,13 +312,25 @@ class GoogleSheetData:
         self.systems.replace("", np.nan, inplace=True)
 
     def clean_approved_systems(self) -> None:
-        #: TODO: add check for rows with invalid PWSID, remove and report them
+        """Clean up the PWS IDs, log any invalid IDs, and drop all but the most recent entry for each PWS ID"""
 
-        #: Remove rows w/o PWS ID, clean up PWS ID and time
+        #: Sheet has lots of empty rows due to formatting
         non_na_systems = self.systems.dropna(subset=["PWS ID"])[
             ["PWS ID", "Time", "System Name", "Approved", "SC, LC, on NTNC"]
         ]
-        non_na_systems["PWS ID"] = non_na_systems["PWS ID"].astype(str).str.lower().str.strip("utah").astype(int)
+
+        #: Check for pwsids that dont have digits and report
+        non_na_systems["PWS ID"] = non_na_systems["PWS ID"].astype(str)
+        invalid_pwsids = non_na_systems[non_na_systems["PWS ID"].str.match(r"^[^\d]*$")]
+        if not invalid_pwsids.empty:
+            module_logger.warning(
+                "The following PWSIDs are invalid: %s", ", ".join(invalid_pwsids["PWS ID"].astype(str).tolist())
+            )
+            self.invalid_pwsids = invalid_pwsids["PWS ID"].tolist()
+            non_na_systems = non_na_systems[~non_na_systems["PWS ID"].str.match(r"^[^\d]*$")]
+
+        #: Clean pwsid, time
+        non_na_systems["PWS ID"] = non_na_systems["PWS ID"].str.lower().str.strip("utah").astype(int)
         non_na_systems["Time"] = pd.to_datetime(non_na_systems["Time"], format="mixed")
         non_na_systems.rename(columns={"PWS ID": "PWSID"}, inplace=True)
 
@@ -318,7 +338,7 @@ class GoogleSheetData:
         self.cleaned_systems_dataframe = non_na_systems.sort_values("Time").drop_duplicates(subset="PWSID", keep="last")
 
     def load_system_geometries(self, service_areas_service_url: str) -> None:
-        """Load the system area geometries from the specified Feature Service URL
+        """Load the system area geometries from the specified Feature Service URL, converting PWSIDs to ints
 
         Args:
             service_areas_service_url (str): Full REST endpoint URL, including the layer number

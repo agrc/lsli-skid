@@ -26,6 +26,7 @@
     "pgsql",
     "psycopg",
     "PWSID",
+    "pwsids",
     "pygsheets",
     "pyodbc",
     "pytest",
