@@ -13,6 +13,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import arcgis
+import numpy as np
 import pandas as pd
 from gql import Client, gql
 from gql.transport.requests import RequestsHTTPTransport
@@ -156,9 +157,20 @@ def process():
             spatial_records, ["pws_population", "system_id"]
         )
 
-        module_logger.info("Loading data...")
-        loader = load.ServiceUpdater(gis, config.FEATURE_LAYER_ITEMID, working_dir=tempdir_path)
+        module_logger.info("Loading point data...")
+        loader = load.ServiceUpdater(gis, config.POINTS_FEATURE_LAYER_ITEMID, working_dir=tempdir_path)
         features_loaded = loader.truncate_and_load(cleaned_spatial_records)
+
+        module_logger.info("Loading system area data from Google Sheet...")
+        sheet_data = GoogleSheetData(secrets.SERVICE_ACCOUNT_JSON, secrets.SHEET_ID, secrets.SHEET_NAME)
+        sheet_data.load_approved_systems()
+        sheet_data.load_system_geometries(config.SERVICE_AREAS_SERVICE_URL)
+        sheet_data.merge_systems_and_geometries()
+        sheet_data.clean_dataframe_for_agol()
+        service_area_loader = load.ServiceUpdater(
+            gis, config.SERVICE_AREAS_FEATURE_LAYER_ITEMID, working_dir=tempdir_path
+        )
+        areas_loaded = service_area_loader.truncate_and_load(sheet_data.final_systems)
 
         end = datetime.now()
 
@@ -171,8 +183,14 @@ def process():
             f'Start time: {start.strftime("%H:%M:%S")}',
             f'End time: {end.strftime("%H:%M:%S")}',
             f"Duration: {str(end-start)}",
-            f"Features loaded: {features_loaded:,}",
+            f"Points loaded: {features_loaded}",
+            f"Areas loaded: {areas_loaded}",
         ]
+
+        if sheet_data.missing_geometries:
+            summary_rows.append("Missing Geometries:")
+            for pwsid, (name, status) in sheet_data.missing_geometries.items():
+                summary_rows.append(f"{pwsid}: {name} ({status})")
 
         summary_message.message = "\n".join(summary_rows)
         summary_message.attachments = tempdir_path / log_name
@@ -249,6 +267,95 @@ def _spatialize_data(df: pd.DataFrame) -> pd.DataFrame:
         web_mercator_dfs.append(utm_spatial)
 
     return pd.concat(web_mercator_dfs)
+
+
+class GoogleSheetData:
+    """Represents data about whole systems loaded from a Google Sheet"""
+
+    systems_dataframe = pd.DataFrame()
+    cleaned_water_service_areas = pd.DataFrame()
+    missing_geometries = {}
+    final_systems = pd.DataFrame()
+
+    def __init__(self, credentials: str, sheet_id: str, sheet_name: str):
+        self._credentials = credentials
+        self._sheet_id = sheet_id
+        self._sheet_name = sheet_name
+
+    def _load_dataframe_from_sheet(self) -> pd.DataFrame:
+        """Load data from a Google sheet using palletjack using the second row as the header
+
+        Returns:
+            pd.DataFrame: The desired tab of the Google Sheet as a DataFrame
+        """
+
+        gsheet_extractor = extract.GSheetLoader(self._credentials)
+        systems = gsheet_extractor.load_specific_worksheet_into_dataframe(
+            self._sheet_id, self._sheet_name, by_title=True
+        )
+
+        #: The loader treats the first row of the sheet as the header, but in this case it's the second row
+        #: So, the first row of the dataframe is the second row of the sheet and should be used as the header
+        systems.columns = systems.iloc[0]
+        systems.columns.name = None
+        systems = systems[1:]
+        systems.replace("", np.nan, inplace=True)
+
+        return systems
+
+    def load_approved_systems(self) -> None:
+        #: TODO: add check for rows with invalid PWSID, remove and report them
+        systems = self._load_dataframe_from_sheet()
+
+        #: Remove rows w/o PWS ID, clean up PWS ID and time
+        non_na_systems = systems.dropna(subset=["PWS ID"])[
+            ["PWS ID", "Time", "System Name", "Approved", "SC, LC, on NTNC"]
+        ]
+        non_na_systems["PWS ID"] = non_na_systems["PWS ID"].astype(str).str.lower().str.strip("utah").astype(int)
+        non_na_systems["Time"] = pd.to_datetime(non_na_systems["Time"], format="mixed")
+        non_na_systems.rename(columns={"PWS ID": "PWSID"}, inplace=True)
+
+        #: Only use the most recent approval for each system
+        self.systems_dataframe = non_na_systems.sort_values("Time").drop_duplicates(subset="PWSID", keep="last")
+
+    def load_system_geometries(self, service_areas_service_url: str) -> None:
+        """Load the system area geometries from the specified Feature Service URL
+
+        Args:
+            service_areas_service_url (str): Full REST endpoint URL, including the layer number
+        """
+
+        water_service_areas = arcgis.features.FeatureLayer(service_areas_service_url).query(as_df=True)
+        self.cleaned_water_service_areas = water_service_areas[water_service_areas["DWSYSNUM"] != " "].copy()
+        self.cleaned_water_service_areas["PWSID"] = (
+            self.cleaned_water_service_areas["DWSYSNUM"].str.lower().str.strip("utahz").astype(int)
+        )
+
+    def merge_systems_and_geometries(self) -> None:
+        """Merge geometries to system data, logging any systems that don't have a matching geometry"""
+
+        merged = self.systems_dataframe.merge(self.cleaned_water_service_areas, on="PWSID", how="left")
+        no_area = merged[merged["FID"].isna()]
+        if not no_area.empty:
+            self.missing_geometries = {
+                row["PWSID"]: (row["System Name"], row["SC, LC, on NTNC"]) for _, row in no_area.iterrows()
+            }
+            module_logger.warning(
+                "The following PWSIDs were not found in the service areas layer: %s",
+                ", ".join(no_area["PWSID"].astype(str).tolist()),
+            )
+        self.final_systems = merged.dropna(subset=["FID"])
+
+    def clean_dataframe_for_agol(self) -> None:
+        """AGOL-ize and lowercase the column names and remove the area and length columns"""
+
+        cleaned_columns = {
+            original_name: agol_name.lower()
+            for original_name, agol_name in utils.rename_columns_for_agol(self.final_systems.columns).items()
+        }
+        cleaned_columns.pop("SHAPE")
+        self.final_systems.rename(columns=cleaned_columns, inplace=True)
+        self.final_systems.drop(columns=["shape__area", "shape__length"], inplace=True)
 
 
 #: Putting this here means you can call the file via `python main.py` and it will run. Useful for pre-GCF testing.
