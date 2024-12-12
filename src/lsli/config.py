@@ -47,4 +47,8 @@ GRAPHQl_QUERY = """
         """
 GRAPHQL_LIMIT = 8000
 
-FEATURE_LAYER_ITEMID = "7d081afc93624d87af7bdf9aaee5163f"
+POINTS_FEATURE_LAYER_ITEMID = "7d081afc93624d87af7bdf9aaee5163f"
+SERVICE_AREAS_FEATURE_LAYER_ITEMID = "7591b5684ef34e1fbff8e931ce5acc2e"
+SERVICE_AREAS_SERVICE_URL = (
+    "https://services.arcgis.com/ZzrwjTRez6FJiOq4/arcgis/rest/services/CulinaryWaterServiceAreas/FeatureServer/0/"
+)
