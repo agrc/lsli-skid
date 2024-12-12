@@ -158,7 +158,7 @@ class TestGoogleSheetData:
             spec=main.GoogleSheetData, _credentials="credentials", _sheet_id="sheet_id", _sheet_name="sheet_name"
         )
 
-        output_df = main.GoogleSheetData._load_dataframe_from_sheet(instance_mock)
+        main.GoogleSheetData.load_systems_from_sheet(instance_mock)
 
         expected_df = pd.DataFrame(
             {
@@ -169,9 +169,9 @@ class TestGoogleSheetData:
             index=[1, 2],
         )
 
-        pd.testing.assert_frame_equal(output_df, expected_df)
+        pd.testing.assert_frame_equal(instance_mock.systems, expected_df)
 
-    def test_load_approved_systems_cleans_data(self, mocker):
+    def test_clean_approved_systems_cleans_data(self, mocker):
         input_data = pd.DataFrame(
             {
                 "PWS ID": ["Utah1234", np.nan, "4567"],
@@ -183,9 +183,9 @@ class TestGoogleSheetData:
             }
         )
         instance_mock = mocker.Mock(spec=main.GoogleSheetData)
-        instance_mock._load_dataframe_from_sheet.return_value = input_data
+        instance_mock.systems = input_data
 
-        main.GoogleSheetData.load_approved_systems(instance_mock)
+        main.GoogleSheetData.clean_approved_systems(instance_mock)
 
         expected_output = pd.DataFrame(
             {
@@ -200,9 +200,9 @@ class TestGoogleSheetData:
         expected_output["PWSID"] = expected_output["PWSID"].astype(int)
         expected_output["Time"] = pd.to_datetime(expected_output["Time"], format="mixed")
 
-        pd.testing.assert_frame_equal(instance_mock.systems_dataframe, expected_output)
+        pd.testing.assert_frame_equal(instance_mock.cleaned_systems_dataframe, expected_output)
 
-    def test_load_approved_systems_removes_earlier_duplicate(self, mocker):
+    def test_clean_approved_systems_removes_earlier_duplicate(self, mocker):
         input_data = pd.DataFrame(
             {
                 "PWS ID": ["Utah1234", "Utah1234", "4567"],
@@ -213,9 +213,9 @@ class TestGoogleSheetData:
             }
         )
         instance_mock = mocker.Mock(spec=main.GoogleSheetData)
-        instance_mock._load_dataframe_from_sheet.return_value = input_data
+        instance_mock.systems = input_data
 
-        main.GoogleSheetData.load_approved_systems(instance_mock)
+        main.GoogleSheetData.clean_approved_systems(instance_mock)
 
         expected_output = pd.DataFrame(
             {
@@ -230,7 +230,7 @@ class TestGoogleSheetData:
         expected_output["PWSID"] = expected_output["PWSID"].astype(int)
         expected_output["Time"] = pd.to_datetime(expected_output["Time"], format="mixed")
 
-        pd.testing.assert_frame_equal(instance_mock.systems_dataframe, expected_output)
+        pd.testing.assert_frame_equal(instance_mock.cleaned_systems_dataframe, expected_output)
 
     def test_merge_systems_and_geometries_drops_and_reports_no_matches(self, mocker, caplog):
         systems = pd.DataFrame(
@@ -250,7 +250,7 @@ class TestGoogleSheetData:
         )
 
         instance_mock = mocker.Mock(spec=main.GoogleSheetData)
-        instance_mock.systems_dataframe = systems
+        instance_mock.cleaned_systems_dataframe = systems
         instance_mock.cleaned_water_service_areas = areas
 
         main.GoogleSheetData.merge_systems_and_geometries(instance_mock)

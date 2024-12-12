@@ -163,7 +163,8 @@ def process():
 
         module_logger.info("Loading system area data from Google Sheet...")
         sheet_data = GoogleSheetData(secrets.SERVICE_ACCOUNT_JSON, secrets.SHEET_ID, secrets.SHEET_NAME)
-        sheet_data.load_approved_systems()
+        sheet_data.load_systems_from_sheet()
+        sheet_data.clean_approved_systems()
         sheet_data.load_system_geometries(config.SERVICE_AREAS_SERVICE_URL)
         sheet_data.merge_systems_and_geometries()
         sheet_data.clean_dataframe_for_agol()
@@ -272,7 +273,8 @@ def _spatialize_data(df: pd.DataFrame) -> pd.DataFrame:
 class GoogleSheetData:
     """Represents data about whole systems loaded from a Google Sheet"""
 
-    systems_dataframe = pd.DataFrame()
+    systems = pd.DataFrame()
+    cleaned_systems_dataframe = pd.DataFrame()
     cleaned_water_service_areas = pd.DataFrame()
     missing_geometries = {}
     final_systems = pd.DataFrame()
@@ -282,7 +284,7 @@ class GoogleSheetData:
         self._sheet_id = sheet_id
         self._sheet_name = sheet_name
 
-    def _load_dataframe_from_sheet(self) -> pd.DataFrame:
+    def load_systems_from_sheet(self) -> pd.DataFrame:
         """Load data from a Google sheet using palletjack using the second row as the header
 
         Returns:
@@ -290,25 +292,22 @@ class GoogleSheetData:
         """
 
         gsheet_extractor = extract.GSheetLoader(self._credentials)
-        systems = gsheet_extractor.load_specific_worksheet_into_dataframe(
+        self.systems = gsheet_extractor.load_specific_worksheet_into_dataframe(
             self._sheet_id, self._sheet_name, by_title=True
         )
 
         #: The loader treats the first row of the sheet as the header, but in this case it's the second row
         #: So, the first row of the dataframe is the second row of the sheet and should be used as the header
-        systems.columns = systems.iloc[0]
-        systems.columns.name = None
-        systems = systems[1:]
-        systems.replace("", np.nan, inplace=True)
+        self.systems.columns = self.systems.iloc[0]
+        self.systems.columns.name = None
+        self.systems = self.systems[1:]
+        self.systems.replace("", np.nan, inplace=True)
 
-        return systems
-
-    def load_approved_systems(self) -> None:
+    def clean_approved_systems(self) -> None:
         #: TODO: add check for rows with invalid PWSID, remove and report them
-        systems = self._load_dataframe_from_sheet()
 
         #: Remove rows w/o PWS ID, clean up PWS ID and time
-        non_na_systems = systems.dropna(subset=["PWS ID"])[
+        non_na_systems = self.systems.dropna(subset=["PWS ID"])[
             ["PWS ID", "Time", "System Name", "Approved", "SC, LC, on NTNC"]
         ]
         non_na_systems["PWS ID"] = non_na_systems["PWS ID"].astype(str).str.lower().str.strip("utah").astype(int)
@@ -316,7 +315,7 @@ class GoogleSheetData:
         non_na_systems.rename(columns={"PWS ID": "PWSID"}, inplace=True)
 
         #: Only use the most recent approval for each system
-        self.systems_dataframe = non_na_systems.sort_values("Time").drop_duplicates(subset="PWSID", keep="last")
+        self.cleaned_systems_dataframe = non_na_systems.sort_values("Time").drop_duplicates(subset="PWSID", keep="last")
 
     def load_system_geometries(self, service_areas_service_url: str) -> None:
         """Load the system area geometries from the specified Feature Service URL
@@ -334,7 +333,7 @@ class GoogleSheetData:
     def merge_systems_and_geometries(self) -> None:
         """Merge geometries to system data, logging any systems that don't have a matching geometry"""
 
-        merged = self.systems_dataframe.merge(self.cleaned_water_service_areas, on="PWSID", how="left")
+        merged = self.cleaned_systems_dataframe.merge(self.cleaned_water_service_areas, on="PWSID", how="left")
         no_area = merged[merged["FID"].isna()]
         if not no_area.empty:
             self.missing_geometries = {
