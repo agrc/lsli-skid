@@ -3,7 +3,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from lsli import config, main
+from lsli import main
 
 
 def test_get_secrets_from_gcp_location(mocker):
@@ -155,7 +155,10 @@ class TestGoogleSheetData:
         loader_mock = mocker.patch("lsli.main.extract.GSheetLoader")
         loader_mock.return_value.load_specific_worksheet_into_dataframe.return_value = input_data
         instance_mock = mocker.Mock(
-            spec=main.GoogleSheetData, _credentials="credentials", _sheet_id="sheet_id", _sheet_name="sheet_name"
+            spec=main.GoogleSheetData,
+            _credentials="credentials",
+            _systems_sheet_id="sheet_id",
+            _systems_sheet_name="sheet_name",
         )
 
         main.GoogleSheetData.load_systems_from_sheet(instance_mock)
@@ -194,6 +197,7 @@ class TestGoogleSheetData:
                 "System Name": ["bar", "foo"],
                 "Approved": ["Reject", "Accept"],
                 "SC, LC, on NTNC": [np.nan, "SC"],
+                "area_type": ["Approved System", "Approved System"],
             },
             index=[2, 0],
         )
@@ -224,6 +228,7 @@ class TestGoogleSheetData:
                 "System Name": ["bar", "foo"],
                 "Approved": ["Reject", "Accept"],
                 "SC, LC, on NTNC": [np.nan, "SC"],
+                "area_type": ["Approved System", "Approved System"],
             },
             index=[2, 0],
         )
@@ -254,6 +259,7 @@ class TestGoogleSheetData:
                 "System Name": ["foo"],
                 "Approved": ["Accept"],
                 "SC, LC, on NTNC": ["SC"],
+                "area_type": ["Approved System"],
             },
             index=[0],
         )
@@ -269,37 +275,51 @@ class TestGoogleSheetData:
                 "PWSID": [1234, 4567, 8910],
                 "System Name": ["foo", "bar", "baz"],
                 "SC, LC, on NTNC": ["SC", "LC", "NTNC"],
+                "area_type": ["Approved System", "Approved System", "Approved System"],
+            }
+        )
+
+        links = pd.DataFrame(
+            {
+                "PWSID": [1112, 1314],
+                "System Name": ["boo", "bee"],
+                "Interactive map link": ["link1", "link2"],
+                "area_type": ["Link", "Link"],
             }
         )
 
         areas = pd.DataFrame(
             {
-                "PWSID": [4567, 8910],
-                "Area": ["bar", "baz"],
-                "FID": [2, 3],
+                "PWSID": [4567, 8910, 1112],
+                "Area": ["bar", "baz", "boo"],
+                "FID": [2, 3, 4],
             }
         )
 
         instance_mock = mocker.Mock(spec=main.GoogleSheetData)
         instance_mock.cleaned_systems_dataframe = systems
         instance_mock.cleaned_water_service_areas = areas
+        instance_mock.links = links
 
         main.GoogleSheetData.merge_systems_and_geometries(instance_mock)
 
         expected_output = pd.DataFrame(
             {
-                "PWSID": [4567, 8910],
-                "System Name": ["bar", "baz"],
-                "SC, LC, on NTNC": ["LC", "NTNC"],
-                "Area": ["bar", "baz"],
-                "FID": [2.0, 3.0],
+                "PWSID": [4567, 8910, 1112],
+                "System Name": ["bar", "baz", "boo"],
+                "SC, LC, on NTNC": ["LC", "NTNC", None],
+                "area_type": ["Approved System", "Approved System", "Link"],
+                "Interactive map link": [None, None, "link1"],
+                "Area": ["bar", "baz", "boo"],
+                "FID": [2.0, 3.0, 4.0],
             },
-            index=[1, 2],
+            index=[1, 2, 3],
         )
         expected_missing_geometries_dict = {
-            1234: ("foo", "SC"),
+            1234: ("foo", "SC", "Approved System"),
+            1314: ("bee", np.nan, "Link"),
         }
-        expected_message = "The following PWSIDs were not found in the service areas layer: 1234"
+        expected_message = "The following PWSIDs from the approved systems sheet and/or interactive maps sheet were not found in the service areas layer: 1234, 1314"
 
         pd.testing.assert_frame_equal(instance_mock.final_systems, expected_output)
         assert instance_mock.missing_geometries == expected_missing_geometries_dict
@@ -332,3 +352,59 @@ class TestGoogleSheetData:
         )
 
         pd.testing.assert_frame_equal(instance_mock.final_systems, expected_output)
+
+    def test_clean_system_links_cleans_pwsid_and_renames(self, mocker):
+        input_data = pd.DataFrame(
+            {
+                "PWSID": ["Utah1234", "UTAH4567"],
+                "Water Systme Name": ["foo", "bar"],
+                "Interactive map link": ["link1", "link2"],
+            }
+        )
+
+        instance_mock = mocker.Mock(spec=main.GoogleSheetData)
+        instance_mock.links = input_data
+
+        main.GoogleSheetData.clean_system_links(instance_mock)
+
+        expected_output = pd.DataFrame(
+            {
+                "PWSID": [1234, 4567],
+                "System Name": ["foo", "bar"],
+                "link": ["link1", "link2"],
+                "area_type": ["Link", "Link"],
+            }
+        )
+        expected_output["PWSID"] = expected_output["PWSID"].astype(int)
+
+        pd.testing.assert_frame_equal(instance_mock.links, expected_output)
+
+    def test_clean_system_links_warns_logs_and_drops_duplicate_pwsids(self, mocker, caplog):
+        input_data = pd.DataFrame(
+            {
+                "PWSID": ["Utah1234", "UTAH1234"],
+                "Water Systme Name": ["foo", "bar"],
+                "Interactive map link": ["link1", "link2"],
+                "extra column": ["yes", "no"],
+            }
+        )
+
+        instance_mock = mocker.Mock(spec=main.GoogleSheetData)
+        instance_mock.links = input_data
+
+        main.GoogleSheetData.clean_system_links(instance_mock)
+
+        expected_output = pd.DataFrame(
+            {
+                "PWSID": [1234],
+                "System Name": ["bar"],
+                "link": ["link2"],
+                "area_type": ["Link"],
+            },
+            index=[1],
+        )
+        expected_output["PWSID"] = expected_output["PWSID"].astype(int)
+
+        pd.testing.assert_frame_equal(instance_mock.links, expected_output)
+        assert "Duplicate PWSIDs found in the interactive maps sheet: 1234, 1234" in caplog.text
+        assert instance_mock.duplicate_link_pwsids == {"foo": 1234, "bar": 1234}
