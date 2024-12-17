@@ -320,6 +320,7 @@ class GoogleSheetData:
     def load_systems_from_sheet(self) -> pd.DataFrame:
         """Load data from a Google sheet via palletjack using the second row as the header"""
 
+        module_logger.debug("Loading systems from Google Sheet...")
         gsheet_extractor = extract.GSheetLoader(self._credentials)
         self.systems = gsheet_extractor.load_specific_worksheet_into_dataframe(
             self._systems_sheet_id, self._systems_sheet_name, by_title=True
@@ -335,6 +336,7 @@ class GoogleSheetData:
     def clean_approved_systems(self) -> None:
         """Clean up the PWS IDs, log any invalid IDs, and drop all but the most recent entry for each PWS ID"""
 
+        module_logger.debug("Cleaning approved systems data...")
         #: Sheet has lots of empty rows due to formatting
         non_na_systems = self.systems.dropna(subset=["PWS ID"])[
             ["PWS ID", "Time", "System Name", "Approved", "SC, LC, on NTNC"]
@@ -361,6 +363,8 @@ class GoogleSheetData:
 
     def load_system_links_from_gsheet(self) -> None:
         """Load the interactive maps sheet from Google Sheets using a new extractor"""
+
+        module_logger.debug("Loading interactive map links sheet from Google Sheets...")
         gsheet_extractor = extract.GSheetLoader(self._credentials)
         self.links = gsheet_extractor.load_specific_worksheet_into_dataframe(
             self._links_sheet_id, self._links_sheet_name, by_title=True
@@ -368,6 +372,8 @@ class GoogleSheetData:
 
     def clean_system_links(self) -> None:
         """Format the PWSID, rename columns, and log & drop duplicate PWSIDs"""
+
+        module_logger.debug("Cleaning interactive map links data...")
         self.links["PWSID"] = self.links["PWSID"].str.lower().str.strip("utah").astype(int)
         self.links.rename(columns={"Water Systme Name": "System Name"}, inplace=True)
         duplicated_links = self.links[self.links["PWSID"].duplicated(keep=False)]
@@ -391,6 +397,7 @@ class GoogleSheetData:
             service_areas_service_url (str): Full REST endpoint URL, including the layer number
         """
 
+        module_logger.debug("Loading system area geometries from %s...", service_areas_service_url)
         water_service_areas = arcgis.features.FeatureLayer(service_areas_service_url).query(as_df=True)
         self.cleaned_water_service_areas = water_service_areas[water_service_areas["DWSYSNUM"] != " "].copy()
         self.cleaned_water_service_areas["PWSID"] = (
@@ -400,6 +407,7 @@ class GoogleSheetData:
     def merge_systems_and_geometries(self) -> None:
         """Merge geometries to system data, logging any systems that don't have a matching geometry"""
 
+        module_logger.debug("Merging approved systems and interactive map links data with service areas...")
         all_systems = pd.concat([self.cleaned_systems_dataframe, self.links], ignore_index=True)
 
         merged = all_systems.merge(self.cleaned_water_service_areas, on="PWSID", how="left")
@@ -418,6 +426,7 @@ class GoogleSheetData:
     def clean_dataframe_for_agol(self) -> None:
         """AGOL-ize and lowercase the column names and remove the area and length columns"""
 
+        module_logger.debug("Cleaning dataframe for AGOL...")
         cleaned_columns = {
             original_name: agol_name.lower()
             for original_name, agol_name in utils.rename_columns_for_agol(self.final_systems.columns).items()
