@@ -162,12 +162,18 @@ def process():
         features_loaded = loader.truncate_and_load(cleaned_spatial_records)
 
         module_logger.info("Loading system area data from Google Sheet...")
-        sheet_data = GoogleSheetData(secrets.SERVICE_ACCOUNT_JSON, secrets.SHEET_ID, secrets.SHEET_NAME)
+        sheet_data = GoogleSheetData(
+            secrets.SERVICE_ACCOUNT_JSON, secrets.SHEET_ID, secrets.SHEET_NAME, secrets.LINKS_ID, secrets.LINKS_NAME
+        )
         sheet_data.load_systems_from_sheet()
         sheet_data.clean_approved_systems()
+        sheet_data.load_system_links_from_gsheet()
+        sheet_data.clean_system_links()
         sheet_data.load_system_geometries(config.SERVICE_AREAS_SERVICE_URL)
         sheet_data.merge_systems_and_geometries()
         sheet_data.clean_dataframe_for_agol()
+
+        module_logger.info("Loading system area data to AGOL...")
         service_area_loader = load.ServiceUpdater(
             gis, config.SERVICE_AREAS_FEATURE_LAYER_ITEMID, working_dir=tempdir_path
         )
@@ -193,11 +199,19 @@ def process():
             summary_rows.append("-" * 20)
             summary_rows.extend(sheet_data.invalid_pwsids)
 
+        if sheet_data.duplicate_link_pwsids:
+            summary_rows.append(
+                f"\n{len(sheet_data.duplicate_link_pwsids)} Duplicate PWSIDs found in the interactive maps sheet:"
+            )
+            summary_rows.append("-" * 20)
+            for name, pwsid in sheet_data.duplicate_link_pwsids.items():
+                summary_rows.append(f"{name}: {pwsid}")
+
         if sheet_data.missing_geometries:
             summary_rows.append(f"\n{len(sheet_data.missing_geometries)} Systems are missing geometries:")
             summary_rows.append("-" * 20)
-            for pwsid, (name, status) in sheet_data.missing_geometries.items():
-                summary_rows.append(f"{pwsid}: {name} ({status})")
+            for pwsid, (name, classification, area_type) in sheet_data.missing_geometries.items():
+                summary_rows.append(f"{pwsid}: {name} (classification: {classification}, type: {area_type})")
 
         summary_message.message = "\n".join(summary_rows)
         summary_message.attachments = tempdir_path / log_name
@@ -280,28 +294,35 @@ class GoogleSheetData:
     """Represents data about whole systems loaded from a Google Sheet"""
 
     systems = pd.DataFrame()
+    links = pd.DataFrame()
     cleaned_systems_dataframe = pd.DataFrame()
     cleaned_water_service_areas = pd.DataFrame()
     final_systems = pd.DataFrame()
 
     missing_geometries = {}
     invalid_pwsids = []
+    duplicate_link_pwsids = {}
 
-    def __init__(self, credentials: str, sheet_id: str, sheet_name: str):
+    def __init__(
+        self,
+        credentials: str,
+        systems_sheet_id: str,
+        systems_sheet_name: str,
+        links_sheet_id: str,
+        links_sheet_name: str,
+    ):
         self._credentials = credentials
-        self._sheet_id = sheet_id
-        self._sheet_name = sheet_name
+        self._systems_sheet_id = systems_sheet_id
+        self._systems_sheet_name = systems_sheet_name
+        self._links_sheet_id = links_sheet_id
+        self._links_sheet_name = links_sheet_name
 
     def load_systems_from_sheet(self) -> pd.DataFrame:
-        """Load data from a Google sheet via palletjack using the second row as the header
-
-        Returns:
-            pd.DataFrame: The desired tab of the Google Sheet as a DataFrame
-        """
+        """Load data from a Google sheet via palletjack using the second row as the header"""
 
         gsheet_extractor = extract.GSheetLoader(self._credentials)
         self.systems = gsheet_extractor.load_specific_worksheet_into_dataframe(
-            self._sheet_id, self._sheet_name, by_title=True
+            self._systems_sheet_id, self._systems_sheet_name, by_title=True
         )
 
         #: The loader treats the first row of the sheet as the header, but in this case it's the second row
@@ -333,9 +354,35 @@ class GoogleSheetData:
         non_na_systems["PWS ID"] = non_na_systems["PWS ID"].str.lower().str.strip("utah").astype(int)
         non_na_systems["Time"] = pd.to_datetime(non_na_systems["Time"], format="mixed")
         non_na_systems.rename(columns={"PWS ID": "PWSID"}, inplace=True)
+        non_na_systems["area_type"] = "Approved System"
 
         #: Only use the most recent approval for each system
         self.cleaned_systems_dataframe = non_na_systems.sort_values("Time").drop_duplicates(subset="PWSID", keep="last")
+
+    def load_system_links_from_gsheet(self) -> None:
+        """Load the interactive maps sheet from Google Sheets using a new extractor"""
+        gsheet_extractor = extract.GSheetLoader(self._credentials)
+        self.links = gsheet_extractor.load_specific_worksheet_into_dataframe(
+            self._links_sheet_id, self._links_sheet_name, by_title=True
+        )
+
+    def clean_system_links(self) -> None:
+        """Format the PWSID, rename columns, and log & drop duplicate PWSIDs"""
+        self.links["PWSID"] = self.links["PWSID"].str.lower().str.strip("utah").astype(int)
+        self.links.rename(columns={"Water Systme Name": "System Name"}, inplace=True)
+        duplicated_links = self.links[self.links["PWSID"].duplicated(keep=False)]
+
+        if not duplicated_links.empty:
+            module_logger.warning(
+                "Duplicate PWSIDs found in the interactive maps sheet: %s",
+                ", ".join(duplicated_links["PWSID"].astype(str).tolist()),
+            )
+            self.duplicate_link_pwsids = {row["System Name"]: row["PWSID"] for _, row in duplicated_links.iterrows()}
+
+        self.links.drop_duplicates(subset="PWSID", keep="last", inplace=True)
+        self.links["area_type"] = "Link"
+        self.links.rename(columns={"Interactive map link": "link"}, inplace=True)
+        self.links = self.links.reindex(columns=["PWSID", "System Name", "link", "area_type"])
 
     def load_system_geometries(self, service_areas_service_url: str) -> None:
         """Load the system area geometries from the specified Feature Service URL, converting PWSIDs to ints
@@ -353,14 +400,17 @@ class GoogleSheetData:
     def merge_systems_and_geometries(self) -> None:
         """Merge geometries to system data, logging any systems that don't have a matching geometry"""
 
-        merged = self.cleaned_systems_dataframe.merge(self.cleaned_water_service_areas, on="PWSID", how="left")
+        all_systems = pd.concat([self.cleaned_systems_dataframe, self.links], ignore_index=True)
+
+        merged = all_systems.merge(self.cleaned_water_service_areas, on="PWSID", how="left")
         no_area = merged[merged["FID"].isna()]
         if not no_area.empty:
             self.missing_geometries = {
-                row["PWSID"]: (row["System Name"], row["SC, LC, on NTNC"]) for _, row in no_area.iterrows()
+                row["PWSID"]: (row["System Name"], row["SC, LC, on NTNC"], row["area_type"])
+                for _, row in no_area.sort_values(by="PWSID").iterrows()
             }
             module_logger.warning(
-                "The following PWSIDs were not found in the service areas layer: %s",
+                "The following PWSIDs from the approved systems sheet and/or interactive maps sheet were not found in the service areas layer: %s",
                 ", ".join(no_area["PWSID"].astype(str).tolist()),
             )
         self.final_systems = merged.dropna(subset=["FID"])
