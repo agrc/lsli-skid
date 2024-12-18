@@ -169,7 +169,7 @@ def process():
         sheet_data.clean_approved_systems()
         sheet_data.load_system_links_from_gsheet()
         sheet_data.clean_system_links()
-        sheet_data.load_system_geometries(config.SERVICE_AREAS_SERVICE_URL)
+        sheet_data.load_system_geometries(config.SERVICE_AREA_GEOMETRIES_SERVICE_URL)
         sheet_data.merge_systems_and_geometries()
         sheet_data.clean_dataframe_for_agol()
 
