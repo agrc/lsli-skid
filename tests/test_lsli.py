@@ -193,7 +193,7 @@ class TestGoogleSheetData:
         expected_output = pd.DataFrame(
             {
                 "PWSID": [4567, 1234],
-                "Time": ["1/1/2024", "1/23/2024 15:55"],
+                "submitted_time": ["1/1/2024", "1/23/2024 15:55"],
                 "System Name": ["bar", "foo"],
                 "Approved": ["Reject", "Accept"],
                 "SC, LC, on NTNC": [np.nan, "SC"],
@@ -202,7 +202,7 @@ class TestGoogleSheetData:
             index=[2, 0],
         )
         expected_output["PWSID"] = expected_output["PWSID"].astype(int)
-        expected_output["Time"] = pd.to_datetime(expected_output["Time"], format="mixed")
+        expected_output["submitted_time"] = pd.to_datetime(expected_output["submitted_time"], format="mixed")
 
         pd.testing.assert_frame_equal(instance_mock.cleaned_systems_dataframe, expected_output)
 
@@ -224,7 +224,7 @@ class TestGoogleSheetData:
         expected_output = pd.DataFrame(
             {
                 "PWSID": [4567, 1234],
-                "Time": ["1/1/2024", "1/23/2024 15:55"],
+                "submitted_time": ["1/1/2024", "1/23/2024 15:55"],
                 "System Name": ["bar", "foo"],
                 "Approved": ["Reject", "Accept"],
                 "SC, LC, on NTNC": [np.nan, "SC"],
@@ -233,7 +233,7 @@ class TestGoogleSheetData:
             index=[2, 0],
         )
         expected_output["PWSID"] = expected_output["PWSID"].astype(int)
-        expected_output["Time"] = pd.to_datetime(expected_output["Time"], format="mixed")
+        expected_output["submitted_time"] = pd.to_datetime(expected_output["submitted_time"], format="mixed")
 
         pd.testing.assert_frame_equal(instance_mock.cleaned_systems_dataframe, expected_output)
 
@@ -255,7 +255,7 @@ class TestGoogleSheetData:
         expected_output = pd.DataFrame(
             {
                 "PWSID": ["1234"],
-                "Time": ["1/23/2024 15:55"],
+                "submitted_time": ["1/23/2024 15:55"],
                 "System Name": ["foo"],
                 "Approved": ["Accept"],
                 "SC, LC, on NTNC": ["SC"],
@@ -264,7 +264,7 @@ class TestGoogleSheetData:
             index=[0],
         )
         expected_output["PWSID"] = expected_output["PWSID"].astype(int)
-        expected_output["Time"] = pd.to_datetime(expected_output["Time"], format="mixed")
+        expected_output["submitted_time"] = pd.to_datetime(expected_output["submitted_time"], format="mixed")
 
         pd.testing.assert_frame_equal(instance_mock.cleaned_systems_dataframe, expected_output)
         assert instance_mock.invalid_pwsids == ["Valley Water System"]
