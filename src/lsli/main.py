@@ -355,11 +355,13 @@ class GoogleSheetData:
         #: Clean pwsid, time
         non_na_systems["PWS ID"] = non_na_systems["PWS ID"].str.lower().str.strip("utah").astype(int)
         non_na_systems["Time"] = pd.to_datetime(non_na_systems["Time"], format="mixed")
-        non_na_systems.rename(columns={"PWS ID": "PWSID"}, inplace=True)
+        non_na_systems.rename(columns={"PWS ID": "PWSID", "Time": "submitted_time"}, inplace=True)
         non_na_systems["area_type"] = "Approved System"
 
         #: Only use the most recent approval for each system
-        self.cleaned_systems_dataframe = non_na_systems.sort_values("Time").drop_duplicates(subset="PWSID", keep="last")
+        self.cleaned_systems_dataframe = non_na_systems.sort_values("submitted_time").drop_duplicates(
+            subset="PWSID", keep="last"
+        )
 
     def load_system_links_from_gsheet(self) -> None:
         """Load the interactive maps sheet from Google Sheets using a new extractor"""
