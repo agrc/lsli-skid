@@ -4,6 +4,7 @@
 setup.py
 A module that installs the lsli skid as a module
 """
+
 from pathlib import Path
 
 from setuptools import find_packages, setup
@@ -40,6 +41,7 @@ setup(
     install_requires=[
         "ugrc-palletjack>=5.0,<5.2",
         "agrc-supervisor==3.0.3",
+        "gql==3.5.*",
     ],
     extras_require={
         "tests": [
