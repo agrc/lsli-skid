@@ -376,6 +376,10 @@ class GoogleSheetData:
         """Format the PWSID, rename columns, and log & drop duplicate PWSIDs"""
 
         module_logger.debug("Cleaning interactive map links data...")
+
+        self.links.replace("", np.nan, inplace=True)
+        self.links.dropna(subset=["PWSID"], inplace=True)
+
         self.links["PWSID"] = self.links["PWSID"].str.lower().str.strip("utah").astype(int)
         self.links.rename(columns={"Water Systme Name": "System Name"}, inplace=True)
         duplicated_links = self.links[self.links["PWSID"].duplicated(keep=False)]

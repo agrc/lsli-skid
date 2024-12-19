@@ -10,7 +10,7 @@ SKID_NAME = "lsli_skid"
 AGOL_ORG = "https://ddwlead-hub.maps.arcgis.com"
 SENDGRID_SETTINGS = {  #: Settings for SendGridHandler
     "from_address": "noreply@utah.gov",
-    "to_addresses": ["jdadams@utah.gov"],  # , "aamirgol@utah.gov"],
+    "to_addresses": ["jdadams@utah.gov", "aamirgol@utah.gov"],
     "prefix": f"{SKID_NAME} on {socket.gethostname()}: ",
 }
 LOG_LEVEL = logging.DEBUG

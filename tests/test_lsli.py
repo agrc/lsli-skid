@@ -408,3 +408,30 @@ class TestGoogleSheetData:
         pd.testing.assert_frame_equal(instance_mock.links, expected_output)
         assert "Duplicate PWSIDs found in the interactive maps sheet: 1234, 1234" in caplog.text
         assert instance_mock.duplicate_link_pwsids == {"foo": 1234, "bar": 1234}
+
+    def test_clean_system_links_removes_empty_rows(self, mocker):
+        input_data = pd.DataFrame(
+            {
+                "PWSID": ["Utah1234", ""],
+                "Water Systme Name": ["foo", ""],
+                "Interactive map link": ["link1", ""],
+            }
+        )
+
+        instance_mock = mocker.Mock(spec=main.GoogleSheetData)
+        instance_mock.links = input_data
+
+        main.GoogleSheetData.clean_system_links(instance_mock)
+
+        expected_output = pd.DataFrame(
+            {
+                "PWSID": [1234],
+                "System Name": ["foo"],
+                "link": ["link1"],
+                "area_type": ["Link"],
+            },
+            index=[0],
+        )
+        expected_output["PWSID"] = expected_output["PWSID"].astype(int)
+
+        pd.testing.assert_frame_equal(instance_mock.links, expected_output)
