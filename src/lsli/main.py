@@ -142,19 +142,22 @@ def process():
         gis = arcgis.gis.GIS(config.AGOL_ORG, secrets.AGOL_USER, secrets.AGOL_PASSWORD)
 
         module_logger.info("Loading data from graphql endpoint...")
-        records_df = _load_records_from_graphql(secrets.GRAPHQL_URL, config.GRAPHQl_QUERY, config.GRAPHQL_LIMIT)
+        point_data = PointData()
+        point_data.load_records_from_graphql(secrets.GRAPHQL_URL, config.GRAPHQl_QUERY, config.GRAPHQL_LIMIT)
 
         module_logger.info("Transforming data...")
-        spatial_records = _spatialize_data(records_df)
-        spatial_records.rename(
+        point_data.spatialize_data()
+        point_data.spatial_records.rename(
             columns={"serviceline_material_cassification": "serviceline_material_cassificat"}, inplace=True
         )
 
         #: Strip off trailing digits for any zipcodes in ZIP+4 format
-        spatial_records["pws_zipcode"] = spatial_records["pws_zipcode"].astype(str).str[:5].astype("Int64")
+        point_data.spatial_records["pws_zipcode"] = (
+            point_data.spatial_records["pws_zipcode"].astype(str).str[:5].astype("Int64")
+        )
 
         cleaned_spatial_records = transform.DataCleaning.switch_to_nullable_int(
-            spatial_records, ["pws_population", "system_id"]
+            point_data.spatial_records, ["pws_population", "system_id"]
         )
 
         module_logger.info("Loading point data...")
@@ -223,71 +226,71 @@ def process():
         _remove_log_file_handlers(log_name, loggers)
 
 
-def _load_records_from_graphql(url: str, query: str, limit: int) -> pd.DataFrame:
-    """Load records from a GraphQL endpoint in chunks
+class PointData:
+    def __init__(self):
+        self.records = pd.DataFrame()
+        self.spatial_records = pd.DataFrame()
+        self.missing_coords = pd.DataFrame()
 
-    Args:
-        url (str): GraphQL endpoint URL
-        query (str): GraphQL query string
-        limit (int): The max number of records to return per chunk
+    def load_records_from_graphql(self, url: str, query: str, limit: int):
+        """Load records from a GraphQL endpoint in chunks
 
-    Returns:
-        pd.DataFrame: GraphQL records as a DataFrame
-    """
+        Args:
+            url (str): GraphQL endpoint URL
+            query (str): GraphQL query string
+            limit (int): The max number of records to return per chunk
+        """
 
-    transport = RequestsHTTPTransport(
-        url=url,
-        verify=True,
-        retries=3,
-    )
-    client = Client(transport=transport, fetch_schema_from_transport=True)
-    query = gql(query)
+        transport = RequestsHTTPTransport(
+            url=url,
+            verify=True,
+            retries=3,
+        )
+        client = Client(transport=transport, fetch_schema_from_transport=True)
+        query = gql(query)
 
-    result_length = limit
-    offset = 0
-    records = []
+        result_length = limit
+        offset = 0
+        records_list = []
 
-    while result_length == limit:
-        result = client.execute(query, variable_values={"offset": offset, "limit": limit})
-        result_length = len(result["getLccrMapUGRC"])
-        module_logger.debug("Offset: %s, Length: %s", format(offset, ","), format(result_length, ","))
-        offset += limit
-        records.extend(result["getLccrMapUGRC"])
+        while result_length == limit:
+            result = client.execute(query, variable_values={"offset": offset, "limit": limit})
+            result_length = len(result["getLccrMapUGRC"])
+            module_logger.debug("Offset: %s, Length: %s", format(offset, ","), format(result_length, ","))
+            offset += limit
+            records_list.extend(result["getLccrMapUGRC"])
 
-    return pd.DataFrame(records)
+        self.records = pd.DataFrame(records_list)
 
+    def spatialize_data(self):
+        """Convert a dataframe to a spatially-enabled dataframe accounting for both WGS84 and UTM NAD83 coordinates
 
-def _spatialize_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Convert a dataframe to a spatially-enabled dataframe accounting for both WGS84 and UTM NAD83 coordinates
+        Any rows with latitude < 100 are assumed to be WGS84, while rows with latitude > 100 are assumed to be UTM NAD83.
 
-    Any rows with latitude < 100 are assumed to be WGS84, while rows with latitude > 100 are assumed to be UTM NAD83.
+        Args:
+            df (pd.DataFrame): Input Dataframe with "latitude" and "longitude" columns
 
-    Args:
-        df (pd.DataFrame): Input Dataframe with "latitude" and "longitude" columns
+        """
 
-    Returns:
-        pd.DataFrame: Spatially-enabled DataFrame in Web Mercator (EPSG:3857)
-    """
+        web_mercator_dfs = []
 
-    web_mercator_dfs = []
+        wgs_data = self.records[self.records["latitude"] < 100]
+        if not wgs_data.empty:
+            module_logger.debug("Loading %s rows with WGS84 coordinates", format(len(wgs_data), ","))
+            wgs_spatial = pd.DataFrame.spatial.from_xy(wgs_data, "longitude", "latitude", sr=4326)
+            module_logger.debug("Projecting WGS84 data to Web Mercator")
+            wgs_spatial.spatial.project(3857)
+            web_mercator_dfs.append(wgs_spatial)
 
-    wgs_data = df[df["latitude"] < 100]
-    if not wgs_data.empty:
-        module_logger.debug("Loading %s rows with WGS84 coordinates", format(len(wgs_data), ","))
-        wgs_spatial = pd.DataFrame.spatial.from_xy(wgs_data, "longitude", "latitude", sr=4326)
-        module_logger.debug("Projecting WGS84 data to Web Mercator")
-        wgs_spatial.spatial.project(3857)
-        web_mercator_dfs.append(wgs_spatial)
+        utm_data = self.records[self.records["latitude"] > 100]
+        if not utm_data.empty:
+            module_logger.debug("Loading %s rows with UTM coordinates", format(len(utm_data), ","))
+            utm_spatial = pd.DataFrame.spatial.from_xy(utm_data, "longitude", "latitude", sr=26912)
+            module_logger.debug("Projecting UTM data to Web Mercator")
+            utm_spatial.spatial.project(3857)
+            web_mercator_dfs.append(utm_spatial)
 
-    utm_data = df[df["latitude"] > 100]
-    if not utm_data.empty:
-        module_logger.debug("Loading %s rows with UTM coordinates", format(len(utm_data), ","))
-        utm_spatial = pd.DataFrame.spatial.from_xy(utm_data, "longitude", "latitude", sr=26912)
-        module_logger.debug("Projecting UTM data to Web Mercator")
-        utm_spatial.spatial.project(3857)
-        web_mercator_dfs.append(utm_spatial)
-
-    return pd.concat(web_mercator_dfs)
+        self.spatial_records = pd.concat(web_mercator_dfs)
 
 
 class GoogleSheetData:
