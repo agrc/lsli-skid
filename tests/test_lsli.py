@@ -435,3 +435,30 @@ class TestGoogleSheetData:
         expected_output["PWSID"] = expected_output["PWSID"].astype(int)
 
         pd.testing.assert_frame_equal(instance_mock.links, expected_output)
+
+    def test_clean_system_links_subsets_columns(self, mocker):
+        input_data = pd.DataFrame(
+            {
+                "PWSID": ["Utah1234", "UTAH4567"],
+                "Water Systme Name": ["foo", "bar"],
+                "Interactive map link": ["link1", "link2"],
+                "extra column": ["yes", "no"],
+            }
+        )
+
+        instance_mock = mocker.Mock(spec=main.GoogleSheetData)
+        instance_mock.links = input_data
+
+        main.GoogleSheetData.clean_system_links(instance_mock)
+
+        expected_output = pd.DataFrame(
+            {
+                "PWSID": [1234, 4567],
+                "System Name": ["foo", "bar"],
+                "link": ["link1", "link2"],
+                "area_type": ["Link", "Link"],
+            }
+        )
+        expected_output["PWSID"] = expected_output["PWSID"].astype(int)
+
+        pd.testing.assert_frame_equal(instance_mock.links, expected_output)
