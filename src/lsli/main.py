@@ -377,9 +377,10 @@ class GoogleSheetData:
 
         module_logger.debug("Cleaning interactive map links data...")
 
-        #: Drop empty rows
+        #: Drop empty rows, unneeded columns
         self.links.replace("", np.nan, inplace=True)
         self.links.dropna(subset=["PWSID"], inplace=True)
+        self.links = self.links[["PWSID", "Water Systme Name", "Interactive map link"]].copy()
 
         #: Clean PWSID, drop duplicates, rename columns
         self.links["PWSID"] = self.links["PWSID"].str.lower().str.strip("utah").astype(int)
