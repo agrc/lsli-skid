@@ -146,23 +146,12 @@ def process():
         point_data.load_records_from_graphql(secrets.GRAPHQL_URL, config.GRAPHQl_QUERY, config.GRAPHQL_LIMIT)
 
         module_logger.info("Transforming data...")
-        point_data.spatialize_data()
-        point_data.spatial_records.rename(
-            columns={"serviceline_material_cassification": "serviceline_material_cassificat"}, inplace=True
-        )
-
-        #: Strip off trailing digits for any zipcodes in ZIP+4 format
-        point_data.spatial_records["pws_zipcode"] = (
-            point_data.spatial_records["pws_zipcode"].astype(str).str[:5].astype("Int64")
-        )
-
-        cleaned_spatial_records = transform.DataCleaning.switch_to_nullable_int(
-            point_data.spatial_records, ["pws_population", "system_id"]
-        )
+        point_data.spatialize_point_data()
+        point_data.clean_point_data()
 
         module_logger.info("Loading point data...")
         loader = load.ServiceUpdater(gis, config.POINTS_FEATURE_LAYER_ITEMID, working_dir=tempdir_path)
-        features_loaded = loader.truncate_and_load(cleaned_spatial_records)
+        features_loaded = loader.truncate_and_load(point_data.spatial_records)
 
         module_logger.info("Loading system area data from Google Sheet...")
         sheet_data = GoogleSheetData(
@@ -232,7 +221,7 @@ class PointData:
         self.spatial_records = pd.DataFrame()
         self.missing_coords = pd.DataFrame()
 
-    def load_records_from_graphql(self, url: str, query: str, limit: int):
+    def load_records_from_graphql(self, url: str, query: str, limit: int) -> None:
         """Load records from a GraphQL endpoint in chunks
 
         Args:
@@ -262,14 +251,13 @@ class PointData:
 
         self.records = pd.DataFrame(records_list)
 
-    def spatialize_data(self):
+    def spatialize_point_data(self) -> None:
         """Convert a dataframe to a spatially-enabled dataframe accounting for both WGS84 and UTM NAD83 coordinates
 
         Any rows with latitude < 100 are assumed to be WGS84, while rows with latitude > 100 are assumed to be UTM NAD83.
 
         Args:
             df (pd.DataFrame): Input Dataframe with "latitude" and "longitude" columns
-
         """
 
         web_mercator_dfs = []
@@ -291,6 +279,20 @@ class PointData:
             web_mercator_dfs.append(utm_spatial)
 
         self.spatial_records = pd.concat(web_mercator_dfs)
+
+    def clean_point_data(self) -> None:
+        """Rename columns for AGOL, convert to 5-digit ZIPs, and convert column dtypes"""
+
+        self.spatial_records.rename(
+            columns={"serviceline_material_cassification": "serviceline_material_cassificat"}, inplace=True
+        )
+
+        #: Strip off trailing digits for any zipcodes in ZIP+4 format
+        self.spatial_records["pws_zipcode"] = self.spatial_records["pws_zipcode"].astype(str).str[:5].astype("Int64")
+
+        self.spatial_records = transform.DataCleaning.switch_to_nullable_int(
+            self.spatial_records, ["pws_population", "system_id"]
+        )
 
 
 class GoogleSheetData:
