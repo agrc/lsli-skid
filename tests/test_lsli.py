@@ -81,6 +81,43 @@ class TestPointData:
 
         pd.testing.assert_frame_equal(point_data_mock.records, expected_df)
 
+    def test_spatialize_data_logs_and_drops_na_coords(self, mocker, caplog):
+        spatial_df_mock = mocker.Mock()
+        from_xy_mock = mocker.patch.object(main.pd.DataFrame.spatial, "from_xy", return_value=spatial_df_mock)
+        concat_mock = mocker.patch.object(main.pd, "concat", autospec=True)
+        point_data_mock = mocker.Mock(spec=main.PointData)
+
+        caplog.set_level(logging.DEBUG)
+
+        df = pd.DataFrame(
+            {
+                "latitude": [np.nan, 40],
+                "longitude": [-112, -111],
+            }
+        )
+        point_data_mock.records = df
+
+        main.PointData.spatialize_point_data(point_data_mock)
+
+        missing_rows = pd.DataFrame({"latitude": [np.nan], "longitude": [-112]})
+
+        #: Make sure NA row is logged
+        pd.testing.assert_frame_equal(point_data_mock.missing_coords, missing_rows)
+
+        #: Make sure full dataframe is used and there's only one call
+        pd.testing.assert_frame_equal(from_xy_mock.call_args_list[0][0][0], df.dropna())
+        assert from_xy_mock.call_args_list[0].kwargs == {"sr": 4326}
+        from_xy_mock.assert_called_once()
+
+        #: Make sure log shows only WGS84 processed
+        assert "1 rows with WGS84 coordinates" in caplog.text
+        assert "rows with UTM coordinates" not in caplog.text
+        assert "1 rows with missing coordinates" in caplog.text
+
+        #: Make sure reprojection and concat only called once/with one item
+        spatial_df_mock.spatial.project.assert_called_once_with(3857)
+        concat_mock.assert_called_once_with([spatial_df_mock])
+
     def test_spatialize_data_sorts_different_projections(self, mocker, caplog):
         spatial_df_mock = mocker.Mock()
         from_xy_mock = mocker.patch.object(main.pd.DataFrame.spatial, "from_xy", return_value=spatial_df_mock)

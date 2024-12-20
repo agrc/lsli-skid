@@ -186,6 +186,11 @@ def process():
             f"Areas loaded: {areas_loaded}",
         ]
 
+        if not point_data.missing_coords.empty():
+            summary_rows.append(f"\n{len(point_data.missing_coords)} Point records are missing coordinates")
+            summary_rows.append("-" * 20)
+            summary_rows.append(point_data.missing_coords[["pws_id", "pws_name"]].value_counts().to_string(index=False))
+
         if sheet_data.invalid_pwsids:
             summary_rows.append(f"\n{len(sheet_data.invalid_pwsids)} Invalid PWSIDs found:")
             summary_rows.append("-" * 20)
@@ -243,7 +248,7 @@ class PointData:
         records_list = []
 
         while result_length == limit:
-            result = client.execute(query, variable_values={"offset": offset, "limit": limit})
+            result = client.execute(query, variable_values={"offset": offset, "limit": limit}, parse_result=True)
             result_length = len(result["getLccrMapUGRC"])
             module_logger.debug("Offset: %s, Length: %s", format(offset, ","), format(result_length, ","))
             offset += limit
@@ -252,13 +257,19 @@ class PointData:
         self.records = pd.DataFrame(records_list)
 
     def spatialize_point_data(self) -> None:
-        """Convert a dataframe to a spatially-enabled dataframe accounting for both WGS84 and UTM NAD83 coordinates
+        """Convert a dataframe to a spatially-enabled dataframe accounting for both WGS84 and UTM NAD83 coordinates, logging and dropping any missing coordinates
 
-        Any rows with latitude < 100 are assumed to be WGS84, while rows with latitude > 100 are assumed to be UTM NAD83.
+        Any rows with latitude < 100 are assumed to be WGS84, while rows with latitude > 100 are assumed to be UTM
+        NAD83.
 
         Args:
             df (pd.DataFrame): Input Dataframe with "latitude" and "longitude" columns
         """
+
+        self.missing_coords = self.records[self.records["latitude"].isna() | self.records["longitude"].isna()].copy()
+        if not self.missing_coords.empty:
+            module_logger.warning("%s rows with missing coordinates", len(self.missing_coords))
+        self.records.dropna(subset=["latitude", "longitude"], inplace=True)
 
         web_mercator_dfs = []
 
