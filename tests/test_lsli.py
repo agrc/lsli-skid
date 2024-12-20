@@ -97,7 +97,7 @@ class TestPointData:
         )
         point_data_mock.records = df
 
-        main.PointData.spatialize_data(point_data_mock)
+        main.PointData.spatialize_point_data(point_data_mock)
 
         #: test that right dataframe subsets are called in order
         assert np.array_equal(from_xy_mock.call_args_list[0][0][0].values, df[df["latitude"] < 100].values)
@@ -131,7 +131,7 @@ class TestPointData:
         )
         point_data_mock.records = df
 
-        main.PointData.spatialize_data(point_data_mock)
+        main.PointData.spatialize_point_data(point_data_mock)
 
         #: Make sure full dataframe is used and there's only one call
         pd.testing.assert_frame_equal(from_xy_mock.call_args_list[0][0][0], df)
@@ -145,6 +145,33 @@ class TestPointData:
         #: Make sure reprojection and concat only called once/with one item
         spatial_df_mock.spatial.project.assert_called_once_with(3857)
         concat_mock.assert_called_once_with([spatial_df_mock])
+
+    def test_clean_point_data_cleans_data(self, mocker):
+        point_data_mock = mocker.Mock(spec=main.PointData)
+        point_data_mock.spatial_records = pd.DataFrame(
+            {
+                "serviceline_material_cassification": ["foo", "bar"],
+                "pws_zipcode": ["84093", "84093-1234"],
+                "pws_population": ["1000", "2000"],
+                "system_id": ["1234", "5678"],
+            }
+        )
+
+        main.PointData.clean_point_data(point_data_mock)
+
+        expected_df = pd.DataFrame(
+            {
+                "serviceline_material_cassificat": ["foo", "bar"],
+                "pws_zipcode": [84093, 84093],
+                "pws_population": [1000, 2000],
+                "system_id": [1234, 5678],
+            }
+        )
+        expected_df["pws_zipcode"] = expected_df["pws_zipcode"].astype("Int64")
+        expected_df["pws_population"] = expected_df["pws_population"].astype("Int64")
+        expected_df["system_id"] = expected_df["system_id"].astype("Int64")
+
+        pd.testing.assert_frame_equal(point_data_mock.spatial_records, expected_df)
 
 
 class TestGoogleSheetData:
