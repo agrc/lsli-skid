@@ -26,7 +26,7 @@ def test_get_secrets_from_local_location(mocker):
     assert exists_mock.call_count == 2
 
 
-class TestGraphQL:
+class TestPointData:
     def test_load_records_from_graphql_extends_list(self, mocker):
         mocker.patch("lsli.main.RequestsHTTPTransport", autospec=True)
         mocker.patch("lsli.main.gql", autospec=True)
@@ -39,7 +39,9 @@ class TestGraphQL:
         ]
         mocker.patch("lsli.main.Client", return_value=client_mock)
 
-        output_df = main._load_records_from_graphql("url", "query", 2)
+        point_data_mock = mocker.Mock(spec=main.PointData)
+
+        main.PointData.load_records_from_graphql(point_data_mock, "url", "query", 2)
 
         expected_df = pd.DataFrame(
             [
@@ -50,7 +52,7 @@ class TestGraphQL:
             ]
         )
 
-        pd.testing.assert_frame_equal(output_df, expected_df)
+        pd.testing.assert_frame_equal(point_data_mock.records, expected_df)
 
     def test_load_records_from_graphql_stops_on_partial_length_result(self, mocker):
         mocker.patch("lsli.main.RequestsHTTPTransport", autospec=True)
@@ -64,7 +66,8 @@ class TestGraphQL:
         ]
         mocker.patch("lsli.main.Client", return_value=client_mock)
 
-        output_df = main._load_records_from_graphql("url", "query", 2)
+        point_data_mock = mocker.Mock(spec=main.PointData)
+        main.PointData.load_records_from_graphql(point_data_mock, "url", "query", 2)
 
         expected_df = pd.DataFrame(
             [
@@ -76,14 +79,13 @@ class TestGraphQL:
             ]
         )
 
-        pd.testing.assert_frame_equal(output_df, expected_df)
+        pd.testing.assert_frame_equal(point_data_mock.records, expected_df)
 
-
-class TestSpatializer:
     def test_spatialize_data_sorts_different_projections(self, mocker, caplog):
         spatial_df_mock = mocker.Mock()
         from_xy_mock = mocker.patch.object(main.pd.DataFrame.spatial, "from_xy", return_value=spatial_df_mock)
         concat_mock = mocker.patch.object(main.pd, "concat", autospec=True)
+        point_data_mock = mocker.Mock(spec=main.PointData)
 
         caplog.set_level(logging.DEBUG)
 
@@ -93,8 +95,9 @@ class TestSpatializer:
                 "longitude": [0, 0],
             }
         )
+        point_data_mock.records = df
 
-        main._spatialize_data(df)
+        main.PointData.spatialize_data(point_data_mock)
 
         #: test that right dataframe subsets are called in order
         assert np.array_equal(from_xy_mock.call_args_list[0][0][0].values, df[df["latitude"] < 100].values)
@@ -116,6 +119,7 @@ class TestSpatializer:
         spatial_df_mock = mocker.Mock()
         from_xy_mock = mocker.patch.object(main.pd.DataFrame.spatial, "from_xy", return_value=spatial_df_mock)
         concat_mock = mocker.patch.object(main.pd, "concat", autospec=True)
+        point_data_mock = mocker.Mock(spec=main.PointData)
 
         caplog.set_level(logging.DEBUG)
 
@@ -125,8 +129,9 @@ class TestSpatializer:
                 "longitude": [0, 0],
             }
         )
+        point_data_mock.records = df
 
-        main._spatialize_data(df)
+        main.PointData.spatialize_data(point_data_mock)
 
         #: Make sure full dataframe is used and there's only one call
         pd.testing.assert_frame_equal(from_xy_mock.call_args_list[0][0][0], df)
