@@ -82,32 +82,34 @@ class TestPointData:
         pd.testing.assert_frame_equal(point_data_mock.records, expected_df)
 
     def test_spatialize_data_logs_and_drops_na_coords(self, mocker, caplog):
-        spatial_df_mock = mocker.Mock()
-        from_xy_mock = mocker.patch.object(main.pd.DataFrame.spatial, "from_xy", return_value=spatial_df_mock)
+        gdf_class_mock = mocker.patch("lsli.main.gpd.GeoDataFrame", autospec=True)
+        points_from_xy_mock = mocker.patch.object(main.gpd, "points_from_xy")
         concat_mock = mocker.patch.object(main.pd, "concat", autospec=True)
         point_data_mock = mocker.Mock(spec=main.PointData)
+        mocker.patch.object(main.pd.DataFrame.spatial, "from_geodataframe", autospec=True)
 
         caplog.set_level(logging.DEBUG)
 
         df = pd.DataFrame(
             {
-                "latitude": [np.nan, 40],
-                "longitude": [-112, -111],
+                "latitude": [np.nan, 40.0],
+                "longitude": [-112.0, -111.0],
             }
         )
         point_data_mock.records = df
 
         main.PointData.spatialize_point_data(point_data_mock)
 
-        missing_rows = pd.DataFrame({"latitude": [np.nan], "longitude": [-112]})
+        missing_rows = pd.DataFrame({"latitude": [np.nan], "longitude": [-112.0]})
 
         #: Make sure NA row is logged
         pd.testing.assert_frame_equal(point_data_mock.missing_coords, missing_rows)
 
         #: Make sure full dataframe is used and there's only one call
-        pd.testing.assert_frame_equal(from_xy_mock.call_args_list[0][0][0], df.dropna())
-        assert from_xy_mock.call_args_list[0].kwargs == {"sr": 4326}
-        from_xy_mock.assert_called_once()
+        pd.testing.assert_series_equal(points_from_xy_mock.call_args_list[0][0][0], df.dropna()["longitude"])
+        pd.testing.assert_series_equal(points_from_xy_mock.call_args_list[0][0][1], df.dropna()["latitude"])
+        assert gdf_class_mock.call_args_list[0].kwargs["crs"] == 4326
+        points_from_xy_mock.assert_called_once()
 
         #: Make sure log shows only WGS84 processed
         assert "1 rows with WGS84 coordinates" in caplog.text
@@ -115,21 +117,23 @@ class TestPointData:
         assert "1 rows with missing coordinates" in caplog.text
 
         #: Make sure reprojection and concat only called once/with one item
-        spatial_df_mock.spatial.project.assert_called_once_with(3857)
-        concat_mock.assert_called_once_with([spatial_df_mock])
+        assert len(gdf_class_mock.method_calls) == 1
+        assert gdf_class_mock.method_calls[0] == mocker.call().to_crs(3857, inplace=True)
+        concat_mock.assert_called_once_with([gdf_class_mock.return_value])
 
     def test_spatialize_data_sorts_different_projections(self, mocker, caplog):
-        spatial_df_mock = mocker.Mock()
-        from_xy_mock = mocker.patch.object(main.pd.DataFrame.spatial, "from_xy", return_value=spatial_df_mock)
+        gdf_class_mock = mocker.patch("lsli.main.gpd.GeoDataFrame", autospec=True)
+        points_from_xy_mock = mocker.patch.object(main.gpd, "points_from_xy")
         concat_mock = mocker.patch.object(main.pd, "concat", autospec=True)
         point_data_mock = mocker.Mock(spec=main.PointData)
+        mocker.patch.object(main.pd.DataFrame.spatial, "from_geodataframe", autospec=True)
 
         caplog.set_level(logging.DEBUG)
 
         df = pd.DataFrame(
             {
-                "latitude": [123, 40],
-                "longitude": [0, 0],
+                "latitude": [123.0, 40.0],
+                "longitude": [0.0, 0.0],
             }
         )
         point_data_mock.records = df
@@ -137,33 +141,46 @@ class TestPointData:
         main.PointData.spatialize_point_data(point_data_mock)
 
         #: test that right dataframe subsets are called in order
-        assert np.array_equal(from_xy_mock.call_args_list[0][0][0].values, df[df["latitude"] < 100].values)
-        assert np.array_equal(from_xy_mock.call_args_list[1][0][0].values, df[df["latitude"] >= 100].values)
+        pd.testing.assert_series_equal(
+            points_from_xy_mock.call_args_list[0][0][0], df[df["latitude"] < 100]["longitude"]
+        )
+        pd.testing.assert_series_equal(
+            points_from_xy_mock.call_args_list[0][0][1], df[df["latitude"] < 100]["latitude"]
+        )
+        pd.testing.assert_series_equal(
+            points_from_xy_mock.call_args_list[1][0][0], df[df["latitude"] >= 100]["longitude"]
+        )
+        pd.testing.assert_series_equal(
+            points_from_xy_mock.call_args_list[1][0][1], df[df["latitude"] >= 100]["latitude"]
+        )
 
         #: Make sure log messages reflect proper number of rows
         assert "1 rows with WGS84 coordinates" in caplog.text
         assert "1 rows with UTM coordinates" in caplog.text
 
         #: Check projection calls
-        assert from_xy_mock.call_args_list[0].kwargs == {"sr": 4326}
-        assert from_xy_mock.call_args_list[1].kwargs == {"sr": 26912}
+        assert gdf_class_mock.call_args_list[0].kwargs["crs"] == 4326
+        assert gdf_class_mock.call_args_list[1].kwargs["crs"] == 26912
 
         #: Check final projection and concatenation
-        assert spatial_df_mock.spatial.project.call_args_list == [mocker.call(3857), mocker.call(3857)]
-        concat_mock.assert_called_once_with([spatial_df_mock, spatial_df_mock])
+        assert len(gdf_class_mock.method_calls) == 2
+        assert gdf_class_mock.method_calls[0] == mocker.call().to_crs(3857, inplace=True)
+        assert gdf_class_mock.method_calls[1] == mocker.call().to_crs(3857, inplace=True)
+        concat_mock.assert_called_once_with([gdf_class_mock.return_value, gdf_class_mock.return_value])
 
     def test_spatialize_data_handles_no_utm_coords(self, mocker, caplog):
-        spatial_df_mock = mocker.Mock()
-        from_xy_mock = mocker.patch.object(main.pd.DataFrame.spatial, "from_xy", return_value=spatial_df_mock)
+        gdf_class_mock = mocker.patch("lsli.main.gpd.GeoDataFrame", autospec=True)
+        points_from_xy_mock = mocker.patch.object(main.gpd, "points_from_xy")
         concat_mock = mocker.patch.object(main.pd, "concat", autospec=True)
         point_data_mock = mocker.Mock(spec=main.PointData)
+        mocker.patch.object(main.pd.DataFrame.spatial, "from_geodataframe", autospec=True)
 
         caplog.set_level(logging.DEBUG)
 
         df = pd.DataFrame(
             {
-                "latitude": [41, 40],
-                "longitude": [0, 0],
+                "latitude": [41.0, 40.0],
+                "longitude": [0.0, 0.0],
             }
         )
         point_data_mock.records = df
@@ -171,17 +188,19 @@ class TestPointData:
         main.PointData.spatialize_point_data(point_data_mock)
 
         #: Make sure full dataframe is used and there's only one call
-        pd.testing.assert_frame_equal(from_xy_mock.call_args_list[0][0][0], df)
-        assert from_xy_mock.call_args_list[0].kwargs == {"sr": 4326}
-        from_xy_mock.assert_called_once()
+        pd.testing.assert_series_equal(points_from_xy_mock.call_args_list[0][0][0], df["longitude"])
+        pd.testing.assert_series_equal(points_from_xy_mock.call_args_list[0][0][1], df["latitude"])
+        assert gdf_class_mock.call_args_list[0].kwargs["crs"] == 4326
+        points_from_xy_mock.assert_called_once()
 
         #: Make sure log shows only WGS84 processed
         assert "2 rows with WGS84 coordinates" in caplog.text
         assert "rows with UTM coordinates" not in caplog.text
 
         #: Make sure reprojection and concat only called once/with one item
-        spatial_df_mock.spatial.project.assert_called_once_with(3857)
-        concat_mock.assert_called_once_with([spatial_df_mock])
+        assert len(gdf_class_mock.method_calls) == 1
+        assert gdf_class_mock.method_calls[0] == mocker.call().to_crs(3857, inplace=True)
+        concat_mock.assert_called_once_with([gdf_class_mock.return_value])
 
     def test_clean_point_data_cleans_data(self, mocker):
         point_data_mock = mocker.Mock(spec=main.PointData)
