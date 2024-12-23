@@ -13,6 +13,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import arcgis
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 from gql import Client, gql
@@ -276,20 +277,26 @@ class PointData:
         wgs_data = self.records[self.records["latitude"] < 100]
         if not wgs_data.empty:
             module_logger.debug("Loading %s rows with WGS84 coordinates", format(len(wgs_data), ","))
-            wgs_spatial = pd.DataFrame.spatial.from_xy(wgs_data, "longitude", "latitude", sr=4326)
+            wgs_spatial = gpd.GeoDataFrame(
+                wgs_data, geometry=gpd.points_from_xy(wgs_data["longitude"], wgs_data["latitude"]), crs=4326
+            )
             module_logger.debug("Projecting WGS84 data to Web Mercator")
-            wgs_spatial.spatial.project(3857)
+            wgs_spatial.to_crs(3857, inplace=True)
             web_mercator_dfs.append(wgs_spatial)
 
         utm_data = self.records[self.records["latitude"] > 100]
         if not utm_data.empty:
             module_logger.debug("Loading %s rows with UTM coordinates", format(len(utm_data), ","))
-            utm_spatial = pd.DataFrame.spatial.from_xy(utm_data, "longitude", "latitude", sr=26912)
+            utm_spatial = gpd.GeoDataFrame(
+                utm_data, geometry=gpd.points_from_xy(utm_data["longitude"], utm_data["latitude"]), crs=26912
+            )
             module_logger.debug("Projecting UTM data to Web Mercator")
-            utm_spatial.spatial.project(3857)
+            utm_spatial.to_crs(3857, inplace=True)
             web_mercator_dfs.append(utm_spatial)
 
         self.spatial_records = pd.concat(web_mercator_dfs)
+        self.spatial_records.rename_geometry("SHAPE", inplace=True)
+        self.spatial_records = pd.DataFrame.spatial.from_geodataframe(self.spatial_records)
 
     def clean_point_data(self) -> None:
         """Rename columns for AGOL, convert to 5-digit ZIPs, and convert column dtypes"""
