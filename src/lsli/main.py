@@ -186,7 +186,7 @@ def process():
             f"Areas loaded: {areas_loaded}",
         ]
 
-        if not point_data.missing_coords.empty():
+        if not point_data.missing_coords.empty:
             summary_rows.append(f"\n{len(point_data.missing_coords)} Point records are missing coordinates")
             summary_rows.append("-" * 20)
             summary_rows.append(point_data.missing_coords[["pws_id", "pws_name"]].value_counts().to_string(index=False))
