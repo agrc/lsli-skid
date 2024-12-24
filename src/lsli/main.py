@@ -183,14 +183,28 @@ def process():
             f'Start time: {start.strftime("%H:%M:%S")}',
             f'End time: {end.strftime("%H:%M:%S")}',
             f"Duration: {str(end-start)}",
-            f"Points loaded: {features_loaded}",
-            f"Areas loaded: {areas_loaded}",
+            f"Points loaded: {features_loaded:,}",
+            f"Areas loaded: {areas_loaded:,}",
         ]
 
         if not point_data.missing_coords.empty:
-            summary_rows.append(f"\n{len(point_data.missing_coords)} Point records are missing coordinates")
+            name_length = point_data.missing_coords["pws_name"].str.len().max()
+            summary_rows.append(f"\n{len(point_data.missing_coords):,} Point records are missing coordinates")
             summary_rows.append("-" * 20)
-            summary_rows.append(point_data.missing_coords[["pws_id", "pws_name"]].value_counts().to_string(index=False))
+            summary_rows.append(
+                pd.DataFrame(point_data.missing_coords[["pws_id", "pws_name"]].value_counts())
+                .reset_index()
+                .rename(columns={"count": "nulls"})
+                .to_string(
+                    col_space={"pws_id": 10, "pws_name": name_length, "nulls": 5},
+                    justify="left",
+                    index=False,
+                    formatters={
+                        "pws_name": lambda x: "{:<{width}}".format(x, width=name_length),
+                        "nulls": lambda x: "{:,}".format(x),
+                    },
+                )
+            )
 
         if sheet_data.invalid_pwsids:
             summary_rows.append(f"\n{len(sheet_data.invalid_pwsids)} Invalid PWSIDs found:")
