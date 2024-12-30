@@ -446,7 +446,8 @@ class GoogleSheetData:
 
         module_logger.debug("Loading system area geometries from %s...", service_areas_service_url)
         water_service_areas = arcgis.features.FeatureLayer(service_areas_service_url).query(as_df=True)
-        self.cleaned_water_service_areas = water_service_areas[water_service_areas["DWSYSNUM"] != " "].copy()
+        water_service_areas["DWSYSNUM"] = water_service_areas["DWSYSNUM"].str.strip().replace("", np.nan)
+        self.cleaned_water_service_areas = water_service_areas[~(water_service_areas["DWSYSNUM"].isna())].copy()
         self.cleaned_water_service_areas["PWSID"] = (
             self.cleaned_water_service_areas["DWSYSNUM"].str.lower().str.strip("utahz").astype(int)
         )

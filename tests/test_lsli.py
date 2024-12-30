@@ -550,3 +550,27 @@ class TestGoogleSheetData:
         expected_output["PWSID"] = expected_output["PWSID"].astype(int)
 
         pd.testing.assert_frame_equal(instance_mock.links, expected_output)
+
+    def test_load_system_geometries_handles_different_types_of_missing_ids(self, mocker):
+        fake_water_systems = pd.DataFrame(
+            {
+                "DWSYSNUM": ["UTAH1234", " ", "", np.nan],
+            }
+        )
+
+        feature_layer_klass = mocker.patch("lsli.main.arcgis.features.FeatureLayer")
+        feature_layer_klass.return_value.query.return_value = fake_water_systems
+
+        instance_mock = mocker.Mock(spec=main.GoogleSheetData)
+
+        main.GoogleSheetData.load_system_geometries(instance_mock, "url")
+
+        valid_systems = pd.DataFrame(
+            {
+                "DWSYSNUM": ["UTAH1234"],
+                "PWSID": [1234],
+            }
+        )
+        valid_systems["PWSID"] = valid_systems["PWSID"].astype(int)
+
+        pd.testing.assert_frame_equal(instance_mock.cleaned_water_service_areas, valid_systems)
