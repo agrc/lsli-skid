@@ -330,16 +330,6 @@ class PointData:
 class GoogleSheetData:
     """Represents data about whole systems loaded from a Google Sheet"""
 
-    systems = pd.DataFrame()
-    links = pd.DataFrame()
-    cleaned_systems_dataframe = pd.DataFrame()
-    cleaned_water_service_areas = pd.DataFrame()
-    final_systems = pd.DataFrame()
-
-    missing_geometries = {}
-    invalid_pwsids = []
-    duplicate_link_pwsids = {}
-
     def __init__(
         self,
         credentials: str,
@@ -353,6 +343,17 @@ class GoogleSheetData:
         self._systems_sheet_name = systems_sheet_name
         self._links_sheet_id = links_sheet_id
         self._links_sheet_name = links_sheet_name
+
+        #: Initialize instance variable
+        self.systems = pd.DataFrame()
+        self.links = pd.DataFrame()
+        self.cleaned_systems_dataframe = pd.DataFrame()
+        self.cleaned_water_service_areas = pd.DataFrame()
+        self.final_systems = pd.DataFrame()
+
+        self.missing_geometries = {}
+        self.invalid_pwsids = []
+        self.duplicate_link_pwsids = {}
 
     def load_systems_from_sheet(self) -> pd.DataFrame:
         """Load data from a Google sheet via palletjack using the second row as the header"""
