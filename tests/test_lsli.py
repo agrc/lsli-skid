@@ -413,6 +413,57 @@ class TestGoogleSheetData:
         assert instance_mock.missing_geometries == expected_missing_geometries_dict
         assert expected_message in caplog.text
 
+    def test_merge_systems_and_geometries_merges_links_to_approved_areas(self, mocker):
+        systems = pd.DataFrame(
+            {
+                "PWSID": [1234, 4567, 8910],
+                "System Name": ["foo", "bar", "baz"],
+                "SC, LC, on NTNC": ["SC", "LC", "NTNC"],
+                "area_type": ["Approved System", "Approved System", "Approved System"],
+                "Status": ["Accept", "Accept", "Accept"],
+            }
+        )
+
+        links = pd.DataFrame(
+            {
+                "PWSID": [4567, 1112],
+                "System Name": ["bar", "boo"],
+                "Interactive map link": ["link2", "link3"],
+                "area_type": ["Link", "Link"],
+            }
+        )
+
+        areas = pd.DataFrame(
+            {
+                "PWSID": [1234, 4567, 8910, 1112],
+                "Area": ["foo", "bar", "baz", "boo"],
+                "FID": [1, 2, 3, 4],
+            }
+        )
+
+        instance_mock = mocker.Mock(spec=main.GoogleSheetData)
+        instance_mock.cleaned_systems_dataframe = systems
+        instance_mock.cleaned_water_service_areas = areas
+        instance_mock.links = links
+
+        main.GoogleSheetData.merge_systems_and_geometries(instance_mock)
+
+        expected_output = pd.DataFrame(
+            {
+                "PWSID": [1234, 4567, 8910, 1112],
+                "System Name": ["foo", "bar", "baz", "boo"],
+                "SC, LC, on NTNC": ["SC", "LC", "NTNC", None],
+                "area_type": ["Approved System", "Approved System", "Approved System", "Link"],
+                "Status": ["Accept", "Accept", "Accept", "Link"],
+                "Interactive map link": [None, "link2", None, "link4"],
+                "Area": ["foo", "bar", "baz", "boo"],
+                "FID": [1.0, 2.0, 3.0, 4.0],
+            },
+            index=[0, 1, 2, 3],
+        )
+
+        pd.testing.assert_frame_equal(instance_mock.final_systems, expected_output)
+
     def test_clean_dataframe_for_agol(self, mocker):
         input_data = pd.DataFrame(
             {
