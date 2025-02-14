@@ -162,8 +162,9 @@ def process():
         sheet_data.clean_approved_systems()
         sheet_data.load_system_links_from_gsheet()
         sheet_data.clean_system_links()
+        sheet_data.merge_systems()
         sheet_data.load_system_geometries(config.SERVICE_AREA_GEOMETRIES_SERVICE_URL)
-        sheet_data.merge_systems_and_geometries()
+        sheet_data.merge_systems_with_geometries()
         sheet_data.clean_dataframe_for_agol()
 
         module_logger.info("Loading system area data to AGOL...")
@@ -349,6 +350,7 @@ class GoogleSheetData:
         self.links = pd.DataFrame()
         self.cleaned_systems_dataframe = pd.DataFrame()
         self.cleaned_water_service_areas = pd.DataFrame()
+        self.all_systems = pd.DataFrame()
         self.final_systems = pd.DataFrame()
 
         self.missing_geometries = {}
@@ -411,7 +413,7 @@ class GoogleSheetData:
         )
 
     def clean_system_links(self) -> None:
-        """Format the PWSID, rename columns, and log & drop duplicate PWSIDs"""
+        """Format the PWSID, rename columns, log & drop duplicate PWSIDs, and set Approved value"""
 
         module_logger.debug("Cleaning interactive map links data...")
 
@@ -434,8 +436,10 @@ class GoogleSheetData:
 
         self.links.drop_duplicates(subset="PWSID", keep="last", inplace=True)
         self.links["area_type"] = "Link"
+        #: Approved: "Link" if link available, "NoLink" if not (field limit is 6 chars)
+        self.links["Approved"] = self.links["area_type"].where(self.links["Interactive map link"].notna(), "NoLink")
         self.links.rename(columns={"Interactive map link": "link"}, inplace=True)
-        self.links = self.links.reindex(columns=["PWSID", "System Name", "link", "area_type"])
+        self.links = self.links.reindex(columns=["PWSID", "System Name", "link", "area_type", "Approved"])
 
     def load_system_geometries(self, service_areas_service_url: str) -> None:
         """Load the system area geometries from the specified Feature Service URL, converting PWSIDs to ints
@@ -452,13 +456,43 @@ class GoogleSheetData:
             self.cleaned_water_service_areas["DWSYSNUM"].str.lower().str.strip("utahz").astype(int)
         )
 
-    def merge_systems_and_geometries(self) -> None:
+    def merge_systems(self) -> None:
+        """Merge approved systems and interactive map links data, preferring data from systems when available"""
+
+        module_logger.debug("Merging approved systems and interactive map links data...")
+        all_systems = self.cleaned_systems_dataframe.merge(
+            self.links, on="PWSID", how="outer", suffixes=("_systems", "_links")
+        )
+
+        #: area_type, Approved, and system name should be from systems if available, otherwise take from links
+        #: (systems is default value, links if systems is missing, which is for features only in links)
+        #: Kind of a combo update/merge, favoring systems
+        all_systems["area_type"] = all_systems["area_type_systems"].where(
+            all_systems["area_type_systems"].notna(), all_systems["area_type_links"]
+        )
+        all_systems["Approved"] = all_systems["Approved_systems"].where(
+            all_systems["Approved_systems"].notna(), all_systems["Approved_links"]
+        )
+
+        all_systems["System Name"] = all_systems["System Name_systems"].where(
+            all_systems["System Name_systems"].notna(), all_systems["System Name_links"]
+        )
+
+        self.all_systems = all_systems.drop(
+            columns=[
+                "System Name_systems",
+                "System Name_links",
+                "area_type_systems",
+                "area_type_links",
+                "Approved_systems",
+                "Approved_links",
+            ]
+        )
+
+    def merge_systems_with_geometries(self) -> None:
         """Merge geometries to system data, logging any systems that don't have a matching geometry"""
 
-        module_logger.debug("Merging approved systems and interactive map links data with service areas...")
-        all_systems = pd.concat([self.cleaned_systems_dataframe, self.links], ignore_index=True)
-
-        merged = all_systems.merge(self.cleaned_water_service_areas, on="PWSID", how="left")
+        merged = self.all_systems.merge(self.cleaned_water_service_areas, on="PWSID", how="left")
         no_area = merged[merged["FID"].isna()]
         if not no_area.empty:
             self.missing_geometries = {
