@@ -357,70 +357,62 @@ class TestGoogleSheetData:
         pd.testing.assert_frame_equal(instance_mock.cleaned_systems_dataframe, expected_output)
         assert instance_mock.invalid_pwsids == ["Valley Water System"]
 
-    def test_merge_systems_and_geometries_drops_and_reports_no_matches(self, mocker, caplog):
+    def test_merge_systems_with_geometries_drops_and_reports_no_matches(self, mocker, caplog):
         systems = pd.DataFrame(
             {
                 "PWSID": [1234, 4567, 8910],
                 "System Name": ["foo", "bar", "baz"],
                 "SC, LC, on NTNC": ["SC", "LC", "NTNC"],
-                "area_type": ["Approved System", "Approved System", "Approved System"],
-            }
-        )
-
-        links = pd.DataFrame(
-            {
-                "PWSID": [1112, 1314],
-                "System Name": ["boo", "bee"],
-                "Interactive map link": ["link1", "link2"],
-                "area_type": ["Link", "Link"],
+                "area_type": ["Approved System", "Approved System", "Link"],
+                "Interactive map link": [np.nan, np.nan, "link1"],
+                "Approved": ["Accept", "Accept", "Link"],
             }
         )
 
         areas = pd.DataFrame(
             {
-                "PWSID": [4567, 8910, 1112],
-                "Area": ["bar", "baz", "boo"],
-                "FID": [2, 3, 4],
+                "PWSID": [4567, 8910],
+                "Area": ["bar", "baz"],
+                "FID": [2, 3],
             }
         )
 
         instance_mock = mocker.Mock(spec=main.GoogleSheetData)
-        instance_mock.cleaned_systems_dataframe = systems
+        instance_mock.all_systems = systems
         instance_mock.cleaned_water_service_areas = areas
-        instance_mock.links = links
 
-        main.GoogleSheetData.merge_systems_and_geometries(instance_mock)
+        main.GoogleSheetData.merge_systems_with_geometries(instance_mock)
 
         expected_output = pd.DataFrame(
             {
-                "PWSID": [4567, 8910, 1112],
-                "System Name": ["bar", "baz", "boo"],
-                "SC, LC, on NTNC": ["LC", "NTNC", None],
-                "area_type": ["Approved System", "Approved System", "Link"],
-                "Interactive map link": [None, None, "link1"],
-                "Area": ["bar", "baz", "boo"],
-                "FID": [2.0, 3.0, 4.0],
+                "PWSID": [4567, 8910],
+                "System Name": ["bar", "baz"],
+                "SC, LC, on NTNC": ["LC", "NTNC"],
+                "area_type": ["Approved System", "Link"],
+                "Interactive map link": [np.nan, "link1"],
+                "Approved": ["Accept", "Link"],
+                "Area": ["bar", "baz"],
+                "FID": [2.0, 3.0],
             },
-            index=[1, 2, 3],
+            index=[1, 2],
         )
         expected_missing_geometries_dict = {
             1234: ("foo", "SC", "Approved System"),
-            1314: ("bee", np.nan, "Link"),
         }
-        expected_message = "The following PWSIDs from the approved systems sheet and/or interactive maps sheet were not found in the service areas layer: 1234, 1314"
+        expected_message = "The following PWSIDs from the approved systems sheet and/or interactive maps sheet were not found in the service areas layer: 1234"
 
         pd.testing.assert_frame_equal(instance_mock.final_systems, expected_output)
         assert instance_mock.missing_geometries == expected_missing_geometries_dict
         assert expected_message in caplog.text
 
-    def test_merge_systems_and_geometries_merges_links_to_approved_areas(self, mocker):
+    def test_merge_systems_merges_links_to_systems(self, mocker):
         systems = pd.DataFrame(
             {
                 "PWSID": [1234, 4567, 8910],
                 "System Name": ["foo", "bar", "baz"],
                 "SC, LC, on NTNC": ["SC", "LC", "NTNC"],
                 "area_type": ["Approved System", "Approved System", "Approved System"],
-                "Status": ["Accept", "Accept", "Accept"],
+                "Approved": ["Accept", "Accept", "Accept"],
             }
         )
 
@@ -428,41 +420,31 @@ class TestGoogleSheetData:
             {
                 "PWSID": [4567, 1112],
                 "System Name": ["bar", "boo"],
-                "Interactive map link": ["link2", "link3"],
+                "Interactive map link": ["link2", ""],
                 "area_type": ["Link", "Link"],
-            }
-        )
-
-        areas = pd.DataFrame(
-            {
-                "PWSID": [1234, 4567, 8910, 1112],
-                "Area": ["foo", "bar", "baz", "boo"],
-                "FID": [1, 2, 3, 4],
+                "Approved": ["Link", "NoLink"],
             }
         )
 
         instance_mock = mocker.Mock(spec=main.GoogleSheetData)
         instance_mock.cleaned_systems_dataframe = systems
-        instance_mock.cleaned_water_service_areas = areas
         instance_mock.links = links
 
-        main.GoogleSheetData.merge_systems_and_geometries(instance_mock)
+        main.GoogleSheetData.merge_systems(instance_mock)
 
         expected_output = pd.DataFrame(
             {
                 "PWSID": [1234, 4567, 8910, 1112],
-                "System Name": ["foo", "bar", "baz", "boo"],
                 "SC, LC, on NTNC": ["SC", "LC", "NTNC", None],
+                "Interactive map link": [np.nan, "link2", np.nan, ""],
                 "area_type": ["Approved System", "Approved System", "Approved System", "Link"],
-                "Status": ["Accept", "Accept", "Accept", "Link"],
-                "Interactive map link": [None, "link2", None, "link4"],
-                "Area": ["foo", "bar", "baz", "boo"],
-                "FID": [1.0, 2.0, 3.0, 4.0],
+                "Approved": ["Accept", "Accept", "Accept", "NoLink"],
+                "System Name": ["foo", "bar", "baz", "boo"],
             },
             index=[0, 1, 2, 3],
         )
 
-        pd.testing.assert_frame_equal(instance_mock.final_systems, expected_output)
+        pd.testing.assert_frame_equal(instance_mock.all_systems, expected_output)
 
     def test_clean_dataframe_for_agol(self, mocker):
         input_data = pd.DataFrame(
@@ -512,6 +494,7 @@ class TestGoogleSheetData:
                 "System Name": ["foo", "bar"],
                 "link": ["link1", "link2"],
                 "area_type": ["Link", "Link"],
+                "Approved": ["Link", "Link"],
             }
         )
         expected_output["PWSID"] = expected_output["PWSID"].astype(int)
@@ -539,6 +522,7 @@ class TestGoogleSheetData:
                 "System Name": ["bar"],
                 "link": ["link2"],
                 "area_type": ["Link"],
+                "Approved": ["Link"],
             },
             index=[1],
         )
@@ -568,8 +552,36 @@ class TestGoogleSheetData:
                 "System Name": ["foo"],
                 "link": ["link1"],
                 "area_type": ["Link"],
+                "Approved": ["Link"],
             },
             index=[0],
+        )
+        expected_output["PWSID"] = expected_output["PWSID"].astype(int)
+
+        pd.testing.assert_frame_equal(instance_mock.links, expected_output)
+
+    def test_clean_system_links_sets_status_on_missing_link(self, mocker):
+        input_data = pd.DataFrame(
+            {
+                "PWSID": ["Utah1234", "UTAH4567"],
+                "Water Systme Name": ["foo", "bar"],
+                "Interactive map link": ["link1", ""],
+            }
+        )
+
+        instance_mock = mocker.Mock(spec=main.GoogleSheetData)
+        instance_mock.links = input_data
+
+        main.GoogleSheetData.clean_system_links(instance_mock)
+
+        expected_output = pd.DataFrame(
+            {
+                "PWSID": [1234, 4567],
+                "System Name": ["foo", "bar"],
+                "link": ["link1", np.nan],
+                "area_type": ["Link", "Link"],
+                "Approved": ["Link", "NoLink"],
+            }
         )
         expected_output["PWSID"] = expected_output["PWSID"].astype(int)
 
@@ -596,6 +608,7 @@ class TestGoogleSheetData:
                 "System Name": ["foo", "bar"],
                 "link": ["link1", "link2"],
                 "area_type": ["Link", "Link"],
+                "Approved": ["Link", "Link"],
             }
         )
         expected_output["PWSID"] = expected_output["PWSID"].astype(int)
