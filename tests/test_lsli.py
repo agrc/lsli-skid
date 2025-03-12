@@ -148,10 +148,10 @@ class TestPointData:
             points_from_xy_mock.call_args_list[0][0][1], df[df["latitude"] < 100]["latitude"]
         )
         pd.testing.assert_series_equal(
-            points_from_xy_mock.call_args_list[1][0][0], df[df["latitude"] >= 100]["longitude"]
+            points_from_xy_mock.call_args_list[1][0][0], df[df["latitude"] >= 100]["latitude"]
         )
         pd.testing.assert_series_equal(
-            points_from_xy_mock.call_args_list[1][0][1], df[df["latitude"] >= 100]["latitude"]
+            points_from_xy_mock.call_args_list[1][0][1], df[df["latitude"] >= 100]["longitude"]
         )
 
         #: Make sure log messages reflect proper number of rows
