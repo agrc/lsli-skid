@@ -303,7 +303,7 @@ class PointData:
         if not utm_data.empty:
             module_logger.debug("Loading %s rows with UTM coordinates", format(len(utm_data), ","))
             utm_spatial = gpd.GeoDataFrame(
-                utm_data, geometry=gpd.points_from_xy(utm_data["longitude"], utm_data["latitude"]), crs=26912
+                utm_data, geometry=gpd.points_from_xy(utm_data["latitude"], utm_data["longitude"]), crs=26912
             )
             module_logger.debug("Projecting UTM data to Web Mercator")
             utm_spatial.to_crs(3857, inplace=True)
