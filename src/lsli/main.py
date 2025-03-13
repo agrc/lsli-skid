@@ -302,6 +302,8 @@ class PointData:
         utm_data = self.records[self.records["latitude"] > 100]
         if not utm_data.empty:
             module_logger.debug("Loading %s rows with UTM coordinates", format(len(utm_data), ","))
+            #: the values in the lat/long fields from the GraphQL query in the UTM ranges are switched x for y,
+            #: treating latitude as the x value instead of y as you would expect.
             utm_spatial = gpd.GeoDataFrame(
                 utm_data, geometry=gpd.points_from_xy(utm_data["latitude"], utm_data["longitude"]), crs=26912
             )
