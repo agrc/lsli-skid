@@ -141,6 +141,8 @@ class TestPointData:
         main.PointData.spatialize_point_data(point_data_mock)
 
         #: test that right dataframe subsets are called in order
+        #: the values in the lat/long fields from the GraphQL query in the UTM ranges are switched x for y, so 
+        #: switching which fields to use so that latitude is treated as the x value instead of y as you would expect.
         pd.testing.assert_series_equal(
             points_from_xy_mock.call_args_list[0][0][0], df[df["latitude"] < 100]["longitude"]
         )
