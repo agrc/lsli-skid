@@ -39,7 +39,7 @@ setup(
     },
     keywords=["gis"],
     install_requires=[
-        "ugrc-palletjack>=5.0,<5.2",
+        "ugrc-palletjack>=5.0,<5.3",
         "ugrc-supervisor==3.*",
         "gql==3.5.*",
     ],
