@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/agrc/lsli-skid/compare/v1.0.0...v1.0.1) (2025-11-20)
+
+
+### Dependencies
+
+* q4 dbot, dbot frequency ([39eb9c2](https://github.com/agrc/lsli-skid/commit/39eb9c2531dda28a8d334475286e5f0b8c11d777))
+
 ## 1.0.0 (2025-06-06)
 
 
