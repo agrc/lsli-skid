@@ -436,12 +436,12 @@ class TestGoogleSheetData:
 
         expected_output = pd.DataFrame(
             {
-                "PWSID": [1234, 4567, 8910, 1112],
-                "SC, LC, on NTNC": ["SC", "LC", "NTNC", np.nan],
-                "Interactive map link": [np.nan, "link2", np.nan, ""],
-                "area_type": ["Approved System", "Approved System", "Approved System", "Link"],
-                "Approved": ["Accept", "Accept", "Accept", "NoLink"],
-                "System Name": ["foo", "bar", "baz", "boo"],
+                "PWSID": [1112, 1234, 4567, 8910],
+                "SC, LC, on NTNC": [np.nan, "SC", "LC", "NTNC"],
+                "Interactive map link": ["", np.nan, "link2", np.nan],
+                "area_type": ["Link", "Approved System", "Approved System", "Approved System"],
+                "Approved": ["NoLink", "Accept", "Accept", "Accept"],
+                "System Name": ["boo", "foo", "bar", "baz"],
             },
             index=[0, 1, 2, 3],
         )
