@@ -41,11 +41,11 @@ setup(
     install_requires=[
         "ugrc-palletjack>=5.0,<5.3",
         "ugrc-supervisor==3.*",
-        "gql==3.5.*",
+        "gql>=3.5,<4.1",
     ],
     extras_require={
         "tests": [
-            "pytest-cov>=3,<7",
+            "pytest-cov>=3,<8",
             "pytest-instafail==0.5.*",
             "pytest-mock==3.*",
             "pytest-watch==4.*",
