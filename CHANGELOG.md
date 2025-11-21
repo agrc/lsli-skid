@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/agrc/lsli-skid/compare/v1.0.1...v1.0.2) (2025-11-21)
+
+
+### Dependencies
+
+* **dev:** update pytest requirement from &lt;9,&gt;=6 to &gt;=6,&lt;10 ([1a4ddd6](https://github.com/agrc/lsli-skid/commit/1a4ddd6a7f51feedc3607bd219adc3c3b1fb2d96))
+
 ## [1.0.1](https://github.com/agrc/lsli-skid/compare/v1.0.0...v1.0.1) (2025-11-20)
 
 
