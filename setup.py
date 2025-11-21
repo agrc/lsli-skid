@@ -49,7 +49,7 @@ setup(
             "pytest-instafail==0.5.*",
             "pytest-mock==3.*",
             "pytest-watch==4.*",
-            "pytest>=6,<9",
+            "pytest>=6,<10",
             "ruff==0.*",
         ]
     },
