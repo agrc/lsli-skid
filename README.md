@@ -17,3 +17,7 @@ The script checks for three types of invalid data, drops any corresponding rows,
 1. Invalid PWSIDs in the Google Sheets. They must be in the form `Utah1234` (case insensitive, with or without leading zeros on the digits) or just `1234` (again, with or without leading zeros).
 1. Duplicate PWSIDs in the certified areas spreadsheet. There was one or two in the early data so we included this check, but we don't anticipate this issue going forward.
 1. PWSIDs that don't occur in the Culinary Water Service Area geometries. As noted above, this indicates WRe doesn't have a polygon for their boundary.
+
+## Attribution
+
+This project was developed with the assistance of [GitHub Copilot](https://github.com/features/copilot).
