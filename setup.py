@@ -42,6 +42,7 @@ setup(
         "ugrc-palletjack>=5.0,<5.3",
         "ugrc-supervisor==3.*",
         "gql>=3.5,<4.1",
+        "pandas>=2,<3",
     ],
     extras_require={
         "tests": [
